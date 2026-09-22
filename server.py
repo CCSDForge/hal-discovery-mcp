@@ -15,4 +15,4 @@ PORT = 8000
 app = mcp.streamable_http_app(stateless_http=True, host=HOST)
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-httpgit sta", host=HOST, port=PORT, stateless_http=True)
+    mcp.run(transport="streamable-http", host=HOST, port=PORT, stateless_http=True)
