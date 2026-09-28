@@ -1,67 +1,82 @@
-import aiohttp
+from hal_api.client import SEARCH_URL, documents_url, escape_phrase, hal_get
 
-BASE_URL = "https://api.archives-ouvertes.fr/search/"
+PIVOT = "producedDateY_i,docType_s"
+
+
+def build_verification_urls(base_fq: list[str], stats: dict) -> dict:
+    """
+    Liens listant les publications derrière chaque chiffre : toute la période,
+    chaque année et chaque type de document présents dans `stats`. Pas de lien
+    par couple (année, type) : trop nombreux pour une grande structure.
+    """
+    doc_types = sorted({t for types in stats.values() for t in types})
+    return {
+        "all": documents_url(base_fq),
+        "by_year": {
+            year: documents_url([base_fq[0], f"producedDateY_i:{int(year)}"])
+            for year in stats
+        },
+        "by_doc_type": {
+            doc_type: documents_url(base_fq + [f'docType_s:"{escape_phrase(doc_type)}"'])
+            for doc_type in doc_types
+        },
+    }
 
 
 async def search_publication_stats(
     struct_id: int,
     start_year: int,
     end_year: int,
-    rows: int = 10000,
 ) -> dict:
     """
-    Interroge l'API de recherche HAL pour récupérer les publications d'une
-    structure sur une période donnée (année de production + type de document).
+    Compte les publications d'une structure sur une période, par année de
+    production et par type de document.
+
+    Le comptage est fait par Solr (facette pivot) : aucune publication n'est
+    rapatriée et les chiffres sont exacts quel que soit le volume.
 
     Returns:
         dict avec:
             - num_found (int): nombre total de publications correspondantes
-            - total_returned (int): nombre réellement récupéré (<= rows)
-            - has_more (bool): True si num_found > total_returned (troncature)
-            - publications (list[dict]): [{"year": ..., "type": ...}, ...]
-            - query_url (str)
+            - stats (dict): {année: {type_document: nombre}}, années croissantes
+            - verification_urls (dict): voir build_verification_urls
+            - query_url (str): requête de comptage réellement envoyée
         ou en cas d'erreur:
             - error (str)
-            - query_url (str)
+            - query_url (str | None)
     """
+    base_fq = [
+        f"structId_i:{int(struct_id)}",
+        f"producedDateY_i:[{int(start_year)} TO {int(end_year)}]",
+    ]
     params = {
         "q": "*:*",
-        "fq": [
-            f"structId_i:{struct_id}",
-            f"producedDateY_i:[{start_year} TO {end_year}]",
-        ],
-        "fl": "producedDateY_i,docType_s",
-        "rows": rows,
-        "wt": "json",
+        "fq": base_fq,
+        "rows": 0,
+        "facet": "true",
+        "facet.pivot": PIVOT,
+        "facet.limit": -1,
+        "facet.mincount": 1,
     }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(BASE_URL, params=params) as resp:
-            query_url = str(resp.url)
+    result = await hal_get(SEARCH_URL, params)
+    if "error" in result:
+        return result
 
-            if resp.status != 200:
-                return {
-                    "error": f"L'API HAL a répondu avec le code {resp.status}",
-                    "query_url": query_url,
-                }
+    data = result["data"]
+    num_found = data.get("response", {}).get("numFound", 0)
+    pivot = data.get("facet_counts", {}).get("facet_pivot", {}).get(PIVOT, [])
 
-            data = await resp.json()
-            response_block = data.get("response", {})
-            docs = response_block.get("docs", [])
-            num_found = response_block.get("numFound", len(docs))
+    stats = {}
+    for year_entry in sorted(pivot, key=lambda e: e["value"]):
+        stats[year_entry["value"]] = {
+            type_entry["value"]: type_entry["count"]
+            for type_entry in year_entry.get("pivot", [])
+        }
 
-            publications = [
-                {
-                    "year": d.get("producedDateY_i"),
-                    "type": d.get("docType_s"),
-                }
-                for d in docs
-            ]
-
-            return {
-                "num_found": num_found,
-                "total_returned": len(publications),
-                "has_more": num_found > len(publications),
-                "publications": publications,
-                "query_url": query_url,
-            }
+    return {
+        "num_found": num_found,
+        "stats": stats,
+        "verification_urls": build_verification_urls(base_fq, stats),
+        "query_url": result["query_url"],
+    }
