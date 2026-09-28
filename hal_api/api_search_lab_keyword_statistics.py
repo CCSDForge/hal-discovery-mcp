@@ -1,86 +1,61 @@
-import aiohttp
+from hal_api.client import SEARCH_URL, documents_url, escape_phrase, hal_get
 
-
-BASE_URL = "https://api.archives-ouvertes.fr/search/"
+# Au-delà, on ne fournit pas de lien par mot-clé (trop de tokens pour le LLM).
+MAX_KEYWORD_URLS = 30
 
 
 async def search_lab_keywords(
-    structure_id: str,
+    struct_id: int,
     year: int,
-    limit: int = 30
+    limit: int = 30,
 ) -> dict:
     """
-    Recherche les mots-clés agrégés d'une structure HAL.
+    Recherche les mots-clés agrégés d'une structure HAL pour une année.
 
-    Solr effectue directement le comptage via les facettes.
-    on cherche pas la liste de publications ...
+    Solr effectue directement le comptage via les facettes : aucune
+    publication n'est rapatriée.
     """
-
+    base_fq = [
+        f"structId_i:{int(struct_id)}",
+        f"producedDateY_i:{int(year)}",
+    ]
     params = {
         "q": "*:*",
-        "fq": [
-            f"structId_i:{structure_id}",
-            f"producedDateY_i:{year}"
-        ],
-
-        # Agrégation Solr
+        "fq": base_fq,
         "facet": "true",
         "facet.field": "keyword_s",
         "facet.limit": limit,
+        "facet.mincount": 1,
         "facet.sort": "count",
-
-        # Ne retourne aucune publication
         "rows": 0,
-
-        "wt": "json"
     }
 
+    result = await hal_get(SEARCH_URL, params)
+    if "error" in result:
+        return result
 
-    async with aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=60)
-    ) as session:
+    data = result["data"]
 
-        async with session.get(
-            BASE_URL,
-            params=params
-        ) as resp:
-
-            if resp.status != 200:
-                return {
-                    "error": f"Erreur HAL {resp.status}: {await resp.text()}"
-                }
-
-
-            data = await resp.json()
-
-
-    # Nombre total de publications
-    total_publications = data["response"]["numFound"]
-
-
-    # Solr retourne :
-    # [
-    #   "mot1", 120,
-    #   "mot2", 90
-    # ]
-
+    # Solr renvoie une liste à plat : ["mot1", 120, "mot2", 90, ...]
     facet_values = (
         data
         .get("facet_counts", {})
         .get("facet_fields", {})
         .get("keyword_s", [])
     )
-
-
-    keyword_aggregation = {}
-
-    for i in range(0, len(facet_values), 2):
-        keyword_aggregation[facet_values[i]] = facet_values[i + 1]
-
+    keyword_aggregation = dict(zip(facet_values[::2], facet_values[1::2]))
 
     return {
-        "structure_id": structure_id,
+        "struct_id": struct_id,
         "year": year,
-        "total_publications": total_publications,
-        "keyword_aggregation": keyword_aggregation
+        "total_publications": data.get("response", {}).get("numFound", 0),
+        "keyword_aggregation": keyword_aggregation,
+        "verification_urls": {
+            "all": documents_url(base_fq),
+            "by_keyword": {
+                keyword: documents_url(base_fq + [f'keyword_s:"{escape_phrase(keyword)}"'])
+                for keyword in list(keyword_aggregation)[:MAX_KEYWORD_URLS]
+            },
+        },
+        "query_url": result["query_url"],
     }
