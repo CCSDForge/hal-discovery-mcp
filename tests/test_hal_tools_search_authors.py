@@ -5,7 +5,7 @@ from hal_tools.search_authors import search_authors
 async def test_search_authors_rejects_empty_query():
     result = await search_authors("   ")
 
-    assert result == {"error": "Le paramètre 'query' est requis et ne peut pas être vide"}
+    assert result == {"error": "Le paramètre 'query' est requis et ne peut pas être vide", "query_url": None}
 
 
 async def test_search_authors_strips_query_and_passes_through_api_result(monkeypatch):
