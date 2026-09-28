@@ -1,59 +1,80 @@
-import aiohttp
-from typing import Optional
+from datetime import date
 
-BASE_URL = "https://api.archives-ouvertes.fr/search/"
+from hal_api.client import SEARCH_URL, date_range, documents_url, doi_url, escape_phrase, first, hal_get
 
-def extract_year(date_str: str | None) -> int | None:
-    if not date_str:
-        return None
-    return int(date_str[:4])
+FIELDS = (
+    "halId_s,uri_s,title_s,abstract_s,producedDateY_i,producedDate_s,"
+    "docType_s,doiId_s,authFullName_s"
+)
+
+
+def build_author_query(author_name: str | None, hal_id: str | None) -> str:
+    """
+    Requête Solr ciblant l'auteur (et non une recherche plein texte, qui
+    remonterait aussi les publications qui mentionnent simplement le nom).
+    L'identifiant HAL est prioritaire : il ne souffre pas des homonymes.
+    """
+    if hal_id:
+        return f'authIdHal_s:"{escape_phrase(hal_id)}"'
+    return f'authFullName_t:"{escape_phrase(author_name)}"'
+
 
 async def search_author_publications(
-    author_name: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    author_name: str | None = None,
+    hal_id: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
     rows: int = 50,
-) -> list[dict]:
-    start_year = extract_year(start_date)
-    end_year = extract_year(end_date)
+) -> dict:
+    """
+    Récupère les publications d'un auteur, les plus récentes d'abord.
 
-    params: dict = {
-    "q": f'"{author_name}"',
-    "fl": "title_s,abstract_s,producedDateY_i,producedDate_s,docType_s,doiId_s", 
-    "rows": rows,
+    start_date / end_date : bornes incluses sur la date de production.
+
+    Returns:
+        dict avec num_found, total_returned, has_more, publications, query_url
+        ou {"error": ..., "query_url": ...} en cas d'échec.
+    """
+    params = {
+        "q": build_author_query(author_name, hal_id),
+        "fl": FIELDS,
+        "rows": rows,
+        "sort": "producedDate_tdate desc",
     }
+    fq = date_range(start_date, end_date, "producedDate_tdate")
+    if fq:
+        params["fq"] = fq
 
-    # Correction : gère les 3 cas (start seul, end seul, les deux)
-    if start_year or end_year:
-        low = str(start_year) if start_year else "*"
-        high = str(end_year) if end_year else "*"
-        params["fq"] = f"producedDateY_i:[{low} TO {high}]"
+    result = await hal_get(SEARCH_URL, params)
+    if "error" in result:
+        return result
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(BASE_URL, params=params) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
+    response_block = result["data"].get("response", {})
+    docs = response_block.get("docs", [])
+    num_found = response_block.get("numFound", len(docs))
 
-    docs = data.get("response", {}).get("docs", [])
-    results = []
-    for d in docs:
-        title = d.get("title_s")
-        if isinstance(title, list):
-            title = title[0]
-
-        abstract = d.get("abstract_s")
-        if isinstance(abstract, list):
-            abstract = abstract[0]
-        if not abstract:
-            abstract = "Pas de résumé disponible"
-            
-        results.append({
-            "title": title,
-            "abstract": abstract,
+    publications = [
+        {
+            "hal_id": d.get("halId_s"),
+            "url": d.get("uri_s"),
+            "title": first(d.get("title_s")),
+            # None si HAL ne fournit pas de résumé (jamais de texte de substitution).
+            "abstract": first(d.get("abstract_s")) or None,
             "year": d.get("producedDateY_i"),
-            "date": d.get("producedDate_s"),   # ← date complète ex: "2023-06-15"
+            "date": d.get("producedDate_s"),
             "type": d.get("docType_s"),
             "doi": d.get("doiId_s"),
-        })
+            "doi_url": doi_url(d.get("doiId_s")),
+            "authors": d.get("authFullName_s") or [],
+        }
+        for d in docs
+    ]
 
-    return results
+    return {
+        "num_found": num_found,
+        "total_returned": len(publications),
+        "has_more": num_found > len(publications),
+        "publications": publications,
+        "verification_url": documents_url([fq] if fq else [], q=params["q"]),
+        "query_url": result["query_url"],
+    }
