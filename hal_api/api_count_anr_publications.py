@@ -1,91 +1,55 @@
 import asyncio
 from datetime import date
-import aiohttp
 
-BASE_URL = "https://api.archives-ouvertes.fr/search/"
+from hal_api.client import SEARCH_URL, date_range, documents_url, hal_get
 
 
-async def search_publication_anr_open_access(
+def build_anr_fq(
+    struct_id: int | None,
+    start_date: date | None,
+    end_date: date | None,
     open_access: bool | None = None,
+) -> list[str]:
+    """
+    Filtres Solr des publications financées par l'ANR. open_access : True =
+    accès ouvert uniquement, False = hors accès ouvert, None = pas de filtre.
+    start_date / end_date : bornes incluses sur la date de production (même
+    champ que les autres outils).
+    """
+    fq = ["anrProjectId_i:[* TO *]"]
+    if struct_id is not None:
+        fq.append(f"structId_i:{int(struct_id)}")
+    if open_access is True:
+        fq.append("openAccess_bool:true")
+    elif open_access is False:
+        fq.append("-openAccess_bool:true")
+    period_fq = date_range(start_date, end_date, "producedDate_tdate")
+    if period_fq:
+        fq.append(period_fq)
+    return fq
+
+
+async def count_anr_publications_hal(
     struct_id: int | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
-    rows: int = 10,
+    open_access: bool | None = None,
 ) -> dict:
     """
-    Récupère les publications HAL ayant un financement ANR (anrProject_t non vide).
-    Retourne un dict avec le nombre total réel de résultats (numFound), la liste
-    des publications effectivement récupérées (limitée par `rows`), et la requête
-    Solr réellement envoyée (pour vérification/debug).
+    Compte (rows=0) les publications HAL ayant un financement ANR.
+    Voir build_anr_fq pour les filtres.
 
-    start_date / end_date : bornes de date complète (année-mois-jour), incluses.
+    Returns:
+        {"num_found": int, "query_url": str} ou {"error": ..., "query_url": ...}
     """
-    query_parts = []
-    if struct_id is not None:
-        query_parts.append(f"structId_i:{struct_id}")
-    query = " AND ".join(query_parts) if query_parts else "*:*"
-
-    fq_parts = ["anrProject_t:[* TO *]"]
-    if open_access is True:
-        fq_parts.append("openAccess_bool:true")
-    elif open_access is False:
-        fq_parts.append("-openAccess_bool:true")
-    # si open_access is None : aucun filtre ajouté
-
-    if start_date is not None or end_date is not None:
-        lower = f"{start_date.isoformat()}T00:00:00Z" if start_date else "*"
-        upper = f"{end_date.isoformat()}T23:59:59Z" if end_date else "*"
-        fq_parts.append(f"publicationDate_tdate:[{lower} TO {upper}]")
-
-    params = [
-        ("q", query),
-        ("wt", "json"),
-        ("fl", "publicationDateY_i,publicationDate_tdate,docType_s,uri_s,title_s,submitType_s,anrProject_t"),
-        ("rows", rows),
-        ("sort", "publicationDate_tdate desc"),
-    ]
-    for fq in fq_parts:
-        params.append(("fq", fq))
-
-    try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(BASE_URL, params=params) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                request_url = str(resp.url)
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        return {
-            "error": f"Échec de la requête HAL : {e}",
-            "num_found": 0,
-            "publications": [],
-            "query_url": None,
-        }
-
-    response = data.get("response", {})
-    num_found = response.get("numFound", 0)
-    docs = response.get("docs", [])
-    publications = [
-        {
-            "publication_year": d.get("publicationDateY_i"),
-            "publication_date": d.get("publicationDate_tdate"),
-            "doc_type": d.get("docType_s"),
-            "url": d.get("uri_s"),
-            "title": (
-                d.get("title_s", [None])[0]
-                if isinstance(d.get("title_s"), list)
-                else d.get("title_s")
-            ),
-            "submit_type": d.get("submitType_s"),
-            "anr_project": d.get("anrProject_t"),
-        }
-        for d in docs
-    ]
+    fq = build_anr_fq(struct_id, start_date, end_date, open_access)
+    result = await hal_get(SEARCH_URL, {"q": "*:*", "fq": fq, "rows": 0})
+    if "error" in result:
+        return result
 
     return {
-        "num_found": num_found,
-        "publications": publications,
-        "query_url": request_url,
+        "num_found": result["data"].get("response", {}).get("numFound", 0),
+        "query_url": result["query_url"],
     }
 
 
@@ -101,36 +65,45 @@ def build_period_applied(start_date: date | None, end_date: date | None) -> str:
 
 
 async def count_anr_publications_logic(
-    open_access: bool | None = None,
     struct_id: int | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> dict:
     """
-    Calcule le nombre de publications HAL financées par l'ANR correspondant
-    aux filtres donnés. uniquement le compte.
+    Nombre de publications HAL financées par l'ANR, avec la répartition
+    accès ouvert / hors accès ouvert. Les deux comptages sont lancés en
+    parallèle ; la part hors accès ouvert est déduite (total - accès ouvert).
     """
     if start_date is not None and end_date is not None and start_date > end_date:
-        raise ValueError(f"start_date ({start_date}) must be <= end_date ({end_date})")
+        return {
+            "error": f"start_date ({start_date}) doit être <= end_date ({end_date})",
+            "query_url": None,
+        }
 
-    try:
-        result = await search_publication_anr_open_access(
-            open_access=open_access,
-            struct_id=struct_id,
-            start_date=start_date,
-            end_date=end_date,
-            rows=0,
-        )
-    except Exception as e:
-        return {"error": f"Erreur inattendue lors de l'appel à HAL : {e}"}
+    total, open_access = await asyncio.gather(
+        count_anr_publications_hal(struct_id, start_date, end_date),
+        count_anr_publications_hal(struct_id, start_date, end_date, open_access=True),
+    )
+    for result in (total, open_access):
+        if "error" in result:
+            return result
 
-    if "error" in result:
-        return {"error": result["error"], "query_url": result.get("query_url")}
+    total_count = total["num_found"]
+    open_count = open_access["num_found"]
 
     return {
-        "total_matching_hal": result["num_found"],
-        "open_access_filter": open_access,
         "struct_id": struct_id,
         "period_applied": build_period_applied(start_date, end_date),
-        "query_url": result["query_url"],
+        "total_anr_publications": total_count,
+        "open_access": open_count,
+        "not_open_access": total_count - open_count,
+        "open_access_rate": round(open_count / total_count, 4) if total_count else None,
+        "verification_urls": {
+            key: documents_url(build_anr_fq(struct_id, start_date, end_date, open_access=oa))
+            for key, oa in (("total", None), ("open_access", True), ("not_open_access", False))
+        },
+        "query_urls": {
+            "total": total["query_url"],
+            "open_access": open_access["query_url"],
+        },
     }
