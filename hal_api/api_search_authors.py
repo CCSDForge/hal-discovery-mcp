@@ -1,6 +1,4 @@
-import aiohttp
-
-BASE_AUTHOR_URL = "https://api.archives-ouvertes.fr/ref/author/"
+from hal_api.client import REF_AUTHOR_URL, escape_phrase, hal_get
 
 
 async def search_authors(query: str, rows: int = 10) -> dict:
@@ -16,38 +14,19 @@ async def search_authors(query: str, rows: int = 10) -> dict:
         ou {"error": ..., "query_url": ...} en cas d'échec.
 
         Chaque élément de "authors" a la forme :
-        {"name": ..., "hal_id": ..., "docid": ..., "statut_validation": ...}
+        {"name": ..., "hal_id": ..., "docid": ..., "validation_status": ...}
     """
     params = {
-        "q": f'text:"{query}"',
-        "wt": "json",
+        "q": f'text:"{escape_phrase(query)}"',
         "fl": "label_s,idHal_s,docid,valid_s",
         "rows": rows,
     }
 
-    try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(BASE_AUTHOR_URL, params=params) as resp:
-                query_url = str(resp.url)
-                if resp.status != 200:
-                    return {
-                        "error": f"L'API HAL a répondu avec le code {resp.status}",
-                        "query_url": query_url,
-                    }
-                try:
-                    data = await resp.json(content_type=None)
-                except Exception as e:
-                    return {
-                        "error": f"Réponse HAL non-JSON ou invalide : {e}",
-                        "query_url": query_url,
-                    }
-    except aiohttp.ClientError as e:
-        return {"error": f"Erreur réseau lors de l'appel à l'API HAL : {e}", "query_url": None}
-    except Exception as e:
-        return {"error": f"Erreur inattendue lors de l'appel à l'API HAL : {e}", "query_url": None}
+    result = await hal_get(REF_AUTHOR_URL, params)
+    if "error" in result:
+        return result
 
-    response_block = data.get("response", {})
+    response_block = result["data"].get("response", {})
     docs = response_block.get("docs", [])
     num_found = response_block.get("numFound", len(docs))
 
@@ -56,7 +35,7 @@ async def search_authors(query: str, rows: int = 10) -> dict:
             "name": d.get("label_s"),
             "hal_id": d.get("idHal_s"),
             "docid": d.get("docid"),
-            "statut_validation": d.get("valid_s"),
+            "validation_status": d.get("valid_s"),
         }
         for d in docs
     ]
@@ -66,5 +45,7 @@ async def search_authors(query: str, rows: int = 10) -> dict:
         "total_returned": len(authors),
         "has_more": num_found > len(authors),
         "authors": authors,
-        "query_url": query_url,
+        # La requête liste déjà les formes auteur du référentiel : c'est aussi le lien de vérification.
+        "verification_url": result["query_url"],
+        "query_url": result["query_url"],
     }
