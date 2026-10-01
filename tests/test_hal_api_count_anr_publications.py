@@ -1,12 +1,11 @@
 from datetime import date
-
-import pytest
+from urllib.parse import parse_qs, urlparse
 
 import hal_api.api_count_anr_publications as anr_module
 from hal_api.api_count_anr_publications import (
     build_period_applied,
+    count_anr_publications_hal,
     count_anr_publications_logic,
-    search_publication_anr_open_access,
 )
 
 
@@ -24,58 +23,68 @@ def test_build_period_applied_with_only_start():
     assert period == "2020-01-01 – ..."
 
 
-async def test_search_publication_anr_open_access_parses_title_list_and_string(fake_aiohttp):
-    fake_aiohttp(
-        json_data={
-            "response": {
-                "numFound": 2,
-                "docs": [
-                    {"title_s": ["Titre en liste"], "docType_s": "ART"},
-                    {"title_s": "Titre en chaine", "docType_s": "COMM"},
-                ],
-            }
-        }
+async def test_count_anr_publications_hal_builds_filters(fake_httpx):
+    client = fake_httpx(json_data={"response": {"numFound": 12}})
+
+    result = await count_anr_publications_hal(
+        struct_id=194495, start_date=date(2020, 1, 1), end_date=date(2020, 12, 31), open_access=False
     )
 
-    result = await search_publication_anr_open_access(struct_id=194495, rows=10)
-
-    assert result["num_found"] == 2
-    titles = [p["title"] for p in result["publications"]]
-    assert titles == ["Titre en liste", "Titre en chaine"]
-
-
-async def test_search_publication_anr_open_access_applies_open_access_filter(fake_aiohttp):
-    session = fake_aiohttp(json_data={"response": {"numFound": 0, "docs": []}})
-
-    await search_publication_anr_open_access(open_access=True, rows=10)
-
-    fq_values = session.calls[0]["params"]
-    fq_only = [v for k, v in fq_values if k == "fq"]
-    assert "openAccess_bool:true" in fq_only
+    assert result["num_found"] == 12
+    params = client.calls[0]["params"]
+    assert params["rows"] == 0
+    assert params["fq"] == [
+        "anrProjectId_i:[* TO *]",
+        "structId_i:194495",
+        "-openAccess_bool:true",
+        "producedDate_tdate:[2020-01-01T00:00:00Z TO 2020-12-31T23:59:59Z]",
+    ]
 
 
-async def test_count_anr_publications_logic_returns_stats_on_success(monkeypatch):
-    async def fake_search(**kwargs):
-        return {"num_found": 42, "query_url": "http://example.test/?q=*"}
+async def test_count_anr_publications_logic_returns_open_access_breakdown(monkeypatch):
+    async def fake_count(struct_id, start_date, end_date, open_access=None):
+        if open_access:
+            return {"num_found": 30, "query_url": "url-oa"}
+        return {"num_found": 40, "query_url": "url-total"}
 
-    monkeypatch.setattr(anr_module, "search_publication_anr_open_access", fake_search)
+    monkeypatch.setattr(anr_module, "count_anr_publications_hal", fake_count)
 
-    result = await count_anr_publications_logic(struct_id=194495, open_access=True)
+    result = await count_anr_publications_logic(struct_id=194495)
 
+    urls = result.pop("verification_urls")
     assert result == {
-        "total_matching_hal": 42,
-        "open_access_filter": True,
         "struct_id": 194495,
         "period_applied": "aucune restriction (toutes dates confondues)",
-        "query_url": "http://example.test/?q=*",
+        "total_anr_publications": 40,
+        "open_access": 30,
+        "not_open_access": 10,
+        "open_access_rate": 0.75,
+        "query_urls": {"total": "url-total", "open_access": "url-oa"},
+    }
+    fq_by_key = {key: parse_qs(urlparse(url).query)["fq"] for key, url in urls.items()}
+    assert fq_by_key == {
+        "total": ["anrProjectId_i:[* TO *]", "structId_i:194495"],
+        "open_access": ["anrProjectId_i:[* TO *]", "structId_i:194495", "openAccess_bool:true"],
+        "not_open_access": ["anrProjectId_i:[* TO *]", "structId_i:194495", "-openAccess_bool:true"],
     }
 
 
+async def test_count_anr_publications_logic_rate_is_none_when_no_publication(monkeypatch):
+    async def fake_count(struct_id, start_date, end_date, open_access=None):
+        return {"num_found": 0, "query_url": "url"}
+
+    monkeypatch.setattr(anr_module, "count_anr_publications_hal", fake_count)
+
+    result = await count_anr_publications_logic(struct_id=194495)
+
+    assert result["open_access_rate"] is None
+
+
 async def test_count_anr_publications_logic_propagates_error(monkeypatch):
-    async def fake_search(**kwargs):
+    async def fake_count(struct_id, start_date, end_date, open_access=None):
         return {"error": "boom", "query_url": None}
 
-    monkeypatch.setattr(anr_module, "search_publication_anr_open_access", fake_search)
+    monkeypatch.setattr(anr_module, "count_anr_publications_hal", fake_count)
 
     result = await count_anr_publications_logic(struct_id=194495)
 
@@ -83,9 +92,10 @@ async def test_count_anr_publications_logic_propagates_error(monkeypatch):
 
 
 async def test_count_anr_publications_logic_rejects_inverted_period():
-    with pytest.raises(ValueError):
-        await count_anr_publications_logic(
-            struct_id=194495,
-            start_date=date(2023, 1, 1),
-            end_date=date(2020, 1, 1),
-        )
+    result = await count_anr_publications_logic(
+        struct_id=194495,
+        start_date=date(2023, 1, 1),
+        end_date=date(2020, 1, 1),
+    )
+
+    assert "error" in result

@@ -1,9 +1,16 @@
+from typing import Annotated
+
+from pydantic import Field
+
 from core.mcp import mcp
 from hal_api.api_search_authors import search_authors as search_authors_api
 
 
 @mcp.tool()
-async def search_authors(query: str, rows: int = 10):
+async def search_authors(
+    query: str,
+    rows: Annotated[int, Field(ge=1, le=100)] = 10,
+):
     """
     search_authors - Recherche des auteurs dans le référentiel d'auteurs HAL à partir
     de leur nom, prénom ou d'une partie de leur nom.
@@ -25,7 +32,7 @@ async def search_authors(query: str, rows: int = 10):
             (ex. : "Yutong Fei").
 
         rows:
-            Nombre maximal d'auteurs à retourner (par défaut : 10).
+            Nombre maximal d'auteurs à retourner (1 à 100, par défaut : 10).
 
     Returns:
         num_found:
@@ -42,11 +49,14 @@ async def search_authors(query: str, rows: int = 10):
             Liste des auteurs trouvés, chaque élément contenant :
             - `name` : nom de l'auteur ;
             - `hal_id` : identifiant HAL ;
-            - `docid` : identifiant interne du document ;
-            - `statut_validation` : statut de validation dans HAL.
+            - `docid` : identifiant interne de la forme auteur dans le référentiel ;
+            - `validation_status` : statut de validation dans HAL.
 
-            Ces noms de champs correspondent exactement à ceux retournés par l'API
-            HAL et ne doivent pas être remplacés par d'autres appellations.
+            Ces noms de champs ne doivent pas être remplacés par d'autres appellations.
+
+        verification_url:
+            Lien cliquable vers l'API HAL listant les auteurs trouvés, à fournir à
+            l'utilisateur tel quel pour qu'il puisse vérifier le résultat.
 
         query_url:
             URL exacte de la requête envoyée à l'API HAL, fournie à des fins de
@@ -64,9 +74,6 @@ async def search_authors(query: str, rows: int = 10):
           à partir de connaissances externes.
     """
     if not query or not query.strip():
-        return {"error": "Le paramètre 'query' est requis et ne peut pas être vide"}
+        return {"error": "Le paramètre 'query' est requis et ne peut pas être vide", "query_url": None}
 
-    result = await search_authors_api(query.strip(), rows=rows)
-    if "error" in result:
-        return {"error": result["error"], "query_url": result.get("query_url")}
-    return result
+    return await search_authors_api(query.strip(), rows=rows)

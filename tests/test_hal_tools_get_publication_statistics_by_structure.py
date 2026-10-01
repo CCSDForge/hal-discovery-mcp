@@ -8,17 +8,12 @@ async def test_rejects_inverted_period():
     assert "error" in result
 
 
-async def test_aggregates_publications_by_year_and_type(monkeypatch):
+async def test_returns_stats_computed_by_hal(monkeypatch):
     async def fake_search(struct_id, start_year, end_year):
         return {
             "num_found": 3,
-            "total_returned": 3,
-            "has_more": False,
-            "publications": [
-                {"year": 2020, "type": "ART"},
-                {"year": 2020, "type": "ART"},
-                {"year": None, "type": None},
-            ],
+            "stats": {2020: {"ART": 2, "COMM": 1}},
+            "verification_urls": {"all": "url-all", "by_year": {}, "by_doc_type": {}},
             "query_url": "url",
         }
 
@@ -26,8 +21,14 @@ async def test_aggregates_publications_by_year_and_type(monkeypatch):
 
     result = await get_publication_statistics_by_structure(struct_id=194495, start_year=2018, end_year=2023)
 
-    assert result["stats"] == {2020: {"ART": 2}, "UNKNOWN": {"UNKNOWN": 1}}
-    assert result["period"] == "2018-2023"
+    assert result == {
+        "struct_id": 194495,
+        "period": "2018-2023",
+        "num_found": 3,
+        "stats": {2020: {"ART": 2, "COMM": 1}},
+        "verification_urls": {"all": "url-all", "by_year": {}, "by_doc_type": {}},
+        "query_url": "url",
+    }
 
 
 async def test_propagates_api_error(monkeypatch):
