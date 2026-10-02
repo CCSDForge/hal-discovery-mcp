@@ -10,6 +10,7 @@ import hal_tools.count_anr_publications
 import hal_tools.get_publication_statistics_by_structure
 import hal_tools.search_lab_keyword_statistics
 import hal_tools.search_publications_by_topic
+import hal_tools.search_documents
 
 HOST = "0.0.0.0"
 PORT = 8000

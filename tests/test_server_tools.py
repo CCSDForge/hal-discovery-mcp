@@ -19,6 +19,7 @@ EXPECTED_TOOLS = {
     "search_lab_keyword_statistics",
     "search_publications_by_topic",
     "search_structure_publications",
+    "search_documents",
 }
 
 
@@ -40,6 +41,7 @@ async def test_all_tools_are_registered():
         ("search_lab_keyword_statistics", "limit"),
         ("search_publications_by_topic", "rows"),
         ("search_structure_publications", "rows"),
+        ("search_documents", "rows"),
     ],
 )
 async def test_result_size_parameters_are_bounded(tool_name, param):

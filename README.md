@@ -47,6 +47,12 @@ Ces outils permettent d’analyser les structures de recherche référencées da
 - `search_publications_by_topic` : recherche de publications portant sur un sujet ou une question de recherche, pour constituer une liste de références.
 
 ---
+
+## 4. Recherche générique
+
+- `search_documents` : accès direct (restreint) à l'API `/search` de HAL, pour les demandes qu'aucun outil spécialisé ne couvre ; l'agent compose lui-même la requête Solr.
+
+---
 # Promptothèque
 
 Pour obtenir des réponses fiables, il est recommandé de formuler les questions en lien avec les fonctionnalités couvertes par les outils disponibles. 
@@ -91,6 +97,13 @@ Vous trouverez ci-dessous une série d'exemples de requêtes pouvant être utili
 - Quelles sont les **pratiques informationnelles des chercheurs** ? Donne-moi une liste de références.
 - Trouve des articles et des thèses récents sur **la science ouverte en SHS** depuis 2020.
 - Quels travaux en sciences de l'information portent sur **l'intelligence artificielle en éducation** ?
+
+## Recherche générique
+
+- Liste les **thèses en accès ouvert** produites en **2023** sur le **changement climatique**.
+- Quelles publications HAL citent le projet **ANR-19-CE23-0001** ?
+- Retrouve le document HAL qui a le DOI **10.1016/j.jtbi.2009.10.014**.
+- Cherche les articles de la revue **Nature** dont un auteur a l'idHal **marie-curie**, avec les champs `abstract_s` et `keyword_s`.
 ---
 
 # Vérification des résultats
@@ -107,6 +120,7 @@ Chaque outil renvoie des liens cliquables vers l'API HAL (`verification_url` ou 
 | `search_lab_keyword_statistics` | toutes les publications de l'année, et un par mot-clé (30 premiers au plus) |
 | `search_publications_by_topic` | un lien vers tous les résultats, dans le même ordre que l'outil |
 | `search_structure_publications` | un lien vers toutes les publications, et un par structure |
+| `search_documents` | un lien reproduisant la requête (`q`, `fq`, `sort`) |
 
 # Description détaillée des outils
 
@@ -196,3 +210,14 @@ La recherche est lexicale : l'agent construit la requête en combinant synonymes
 | `domain` | optionnel | Code de discipline HAL, sous-domaines inclus (ex. `shs.info`) |
 | `sort` | optionnel (défaut : `relevance`) | `relevance` ou `date` |
 | `rows` | optionnel (défaut : 20, max : 50) | Nombre de références retournées |
+
+* `search_documents` : Recherche générique dans les documents HAL (API `/search`, moteur Solr). L'agent compose lui-même la requête (`q`, `fq`, `sort`) et choisit les champs retournés (`fl`) ; la docstring de l'outil lui décrit la syntaxe Solr et une liste restreinte des champs HAL les plus utiles — un utilisateur averti peut lui indiquer d'autres champs.
+Retourne le nombre total exact de documents (`num_found`) et les documents bruts tels que renvoyés par HAL. Accès volontairement partiel : pas de facettes, pas de pagination (`start`/`cursorMark`), sortie JSON forcée ; les paramètres locaux Solr (`{!...}`) sont refusés.
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `q` | optionnel (défaut : `*:*`) | Requête Solr principale |
+| `fq` | optionnel (max : 20) | Liste de filtres Solr, combinés par ET |
+| `sort` | optionnel (défaut : pertinence) | Clauses `<champ> asc\|desc` séparées par des virgules |
+| `rows` | optionnel (défaut : 20, max : 100) | Nombre de documents retournés |
+| `fl` | optionnel (défaut : `docid`, `halId_s`, `uri_s`, `label_s`, `title_s`, `authFullName_s`, `producedDateY_i`, `docType_s`, `doiId_s`) | Champs retournés |

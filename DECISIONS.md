@@ -98,3 +98,23 @@ identifiant ; y ajouter 10 publications par structure (jusqu'à 50 structures) a
 appel. Le nouvel outil accepte plusieurs identifiants, car une même entité peut être répartie
 sur plusieurs structures (ex. 7 URFIST, qui portent toutes le même nom et se distinguent par
 leur sigle). Les structures `OLD` sont incluses : le tri par date les relègue naturellement.
+
+---
+
+## 2026-10-02 — Outil générique `search_documents` : accès restreint à `/search`
+
+**Décision** : un outil expose l'API `/search` de HAL avec les seuls paramètres `q`, `fq`, `sort`,
+`rows` (1 à 100) et `fl` (liste par défaut provisoire, à affiner). Pas de facettes, pas de
+pagination (`start`, `cursorMark`), sortie JSON forcée. Les documents sont renvoyés bruts (clés =
+noms de champs HAL). `fl` et `sort` sont validés syntaxiquement (noms de champs simples, clauses
+`<champ> asc|desc`) ; les paramètres locaux Solr `{!...}` sont refusés dans `q` et `fq`. La
+docstring ne décrit qu'une liste restreinte de champs utiles ; un utilisateur averti peut en
+indiquer d'autres à l'agent.
+
+**Contexte** : couvrir les demandes qu'aucun outil spécialisé ne traite sans multiplier les
+outils. Les facettes sont exclues pour que les statistiques restent servies par les outils dédiés
+(chiffres exacts, liens de vérification) ; la limite de 100 documents et l'absence de pagination
+évitent le moissonnage massif via l'agent. Les noms de champs ne sont pas validés contre une
+liste blanche : HAL rejette un champ inconnu dans `q`/`fq` (erreur remontée par `hal_get`) et
+l'ignore silencieusement dans `fl`/`sort`.
+
