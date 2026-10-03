@@ -9,7 +9,7 @@ Ces outils s’appuient sur les [différentes endpoints de l'API HAL](https://ap
 Le serveur consulte également d'autres référentiels HAL : `author` (auteurs), `structure` (structures de recherche), `anrproject` (projets ANR) et `europeanproject` (projets européens).
 
 ---
-# Connecter votre agent au serveur HAL MCP
+# Connecter votre LLM préféré au serveur MCP de HAL
 
 Le ***HAL Discovery MCP Server*** est actuellement disponible sur l’environnement de préproduction pour la phase de test :
 
