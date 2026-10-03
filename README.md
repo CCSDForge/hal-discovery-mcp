@@ -1,4 +1,4 @@
-# HAL.Science MCP Server  
+# HAL Discovery MCP Server  
 
 Le serveur de HAL-MCP fournit un ensemble d’outils permettant d’interroger l’API de l’archive ouverte **[HAL](https://hal.science/)**.
 
