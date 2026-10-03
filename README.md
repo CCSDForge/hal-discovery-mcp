@@ -1,6 +1,6 @@
 # HAL Discovery MCP Server  
 
-Le serveur de HAL-MCP fournit un ensemble d’outils permettant d’interroger l’API de l’archive ouverte **[HAL](https://hal.science/)**.
+Le ***HAL Discovery MCP Server*** fournit un ensemble d’outils permettant d’interroger l’API de l’archive ouverte **[HAL](https://hal.science/)**.
 
 Ces outils s’appuient sur les [différentes endpoints de l'API HAL](https://api.archives-ouvertes.fr/docs/ref) afin d’accéder aux métadonnées des dépôts disponibles dans HAL.
 
