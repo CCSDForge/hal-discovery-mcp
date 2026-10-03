@@ -65,12 +65,12 @@ Vous trouverez ci-dessous une série d'exemples de requêtes pouvant être utili
 
 ## Recherche d'auteurs
 
-- Recherche l'auteur **Yutong Fei** dans HAL.
-- Donne-moi l'identifiant HAL de **Yutong Fei**.
-- Quelles sont les publications récentes de **Yutong Fei** ?
-- Donne les publications de **Yutong Fei** entre 2022 et 2024.
-- À quel laboratoire est affilié **Yutong Fei** ?
-- Dans quelles structures de recherche **Yutong Fei** a-t-il travaillé ?
+- Recherche l'auteur **Prénom Nom** dans HAL.
+- Donne-moi l'identifiant HAL de **Prénom Nom**.
+- Quelles sont les publications récentes de **Prénom Nom** ?
+- Donne les publications de **Prénom Nom** entre 2022 et 2024.
+- Quel est le laboratoire de rattachement de **Prénom Nom** ?
+- Dans quelles structures de recherche a travaillé **Prénom Nom** ?
 
 ## Recherche de structures
 
@@ -95,7 +95,7 @@ Vous trouverez ci-dessous une série d'exemples de requêtes pouvant être utili
 
 ## Profil d'un auteur
 
-- Sur quoi travaille **Yolande Maury** ? Dans quel domaine ?
+- Sur quoi travaille **Prénom Nom** ? Dans quel domaine ?
 
 ## Projets ANR et européens
 
