@@ -11,7 +11,7 @@ Le serveur consulte également d'autres référentiels HAL : `author` (auteurs),
 ---
 # Connecter votre agent au serveur HAL MCP
 
-Le serveur **HAL MCP** est actuellement disponible sur l’environnement de préproduction pour la phase de test :
+Le ***HAL Discovery MCP Server*** est actuellement disponible sur l’environnement de préproduction pour la phase de test :
 
 - 🔗 service production : https://api.archives-ouvertes.fr/mcp
 - 🔗 service preprod : https://api-preprod.archives-ouvertes.fr/mcp
