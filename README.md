@@ -72,8 +72,6 @@ Vous trouverez ci-dessous une série d'exemples de requêtes pouvant être utili
 
 ## Recherche de structures
 
-- Quel est l'identifiant HAL de **l'Université Claude Bernard Lyon 1** ?
-- Recherche l'identifiant HAL de **CCSD**.
 - Recherche la structure **CREATIS**.
 - Quelles sont les publications les plus récentes des **URFIST** ?
 
