@@ -8,8 +8,6 @@ Ces outils s’appuient sur les [différentes endpoints de l'API HAL](https://ap
 
 Le serveur consulte également d'autres référentiels HAL : `author` (auteurs), `structure` (structures de recherche), `anrproject` (projets ANR) et `europeanproject` (projets européens).
 
-Aucun outil n'utilise de facette Solr, coûteuse pour HAL : les classements (laboratoires, auteurs, mots-clés, disciplines, projets) sont calculés par le serveur MCP à partir de requêtes légères (`hal_api/utils.py`).
-
 ---
 # Connecter votre agent au serveur HAL MCP
 
