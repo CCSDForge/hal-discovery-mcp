@@ -69,8 +69,11 @@ async def search_publications_by_topic(
             retourné, et `True` si la liste n'est pas exhaustive.
         publications: pour chacune hal_id, url, title, authors (10 premiers), num_authors, year, type,
             venue (revue, conférence ou ouvrage), doi, keywords, abstract (tronqué), language.
-        rankings: calculés sur les 300 publications les plus pertinentes (`analyzed_docs`) ;
-            `exhaustive` vaut False si `num_found` est plus grand :
+        rankings: calculés sur TOUTES les publications trouvées jusqu'à 5000 résultats
+            (`exhaustive: true`) ; au-delà, sur les 500 plus pertinentes seulement, avec un
+            `warning` : des auteurs ou laboratoires importants peuvent alors manquer. Dans ce cas,
+            affiner la requête (période, `doc_types`, `domain`) pour obtenir un classement complet
+            avant de présenter les acteurs dominants.
             labs ([{struct_id, name, count, verification_url}], 15 premiers laboratoires),
             authors ([{name, hal_id, count, verification_url}], 15 premiers),
             domains ([{code, label, count}], 10 premières disciplines), by_year, by_doc_type.

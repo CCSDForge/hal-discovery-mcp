@@ -8,6 +8,7 @@ from hal_api.utils import (
     check_aggregate_args,
     collect_values,
     count_buckets,
+    merge_authors_by_idhal,
     counts_by_value,
     default_sort,
     normalize_keyword,
@@ -78,13 +79,15 @@ async def test_collect_values_stops_at_max_docs(fake_httpx):
 
 
 async def test_aggregate_fields_uses_large_pages_to_limit_requests(fake_httpx):
-    client = fake_httpx(json_data={"response": {"numFound": 5000, "docs": [{"docType_s": "ART"}] * 500}, "nextCursorMark": "c1"})
+    client = fake_httpx(json_data={"response": {"numFound": 6000, "docs": [{"docType_s": "ART"}] * 500}, "nextCursorMark": "c1"})
 
     result = await aggregate_fields("x", [], ["docType_s"], 500, 15)
 
-    # 500 publications en une seule requête
+    # au-delà de la limite du classement complet : échantillon de 500, en une seule requête
     assert [c["params"]["rows"] for c in client.calls] == ["500"]
     assert result["analyzed_docs"] == 500
+    assert result["exhaustive"] is False
+    assert "Classement partiel" in result["warning"]
 
 
 async def test_count_buckets_runs_one_rows0_query_per_bucket(fake_httpx):
@@ -171,3 +174,66 @@ def test_rank_keywords_links_on_analyzed_keyword_field():
 
 def test_counts_by_value_is_sorted():
     assert counts_by_value(Counter({2024: 1, 2021: 3})) == {"2021": 3, "2024": 1}
+
+
+async def test_collect_values_analyzes_everything_below_complete_ranking_limit(fake_httpx):
+    # 1200 résultats : au-delà de max_docs=300, mais sous la limite du classement complet
+    client = fake_httpx(
+        responses=[page([{"docType_s": "ART"}] * 500, 1200, f"c{i}") for i in range(2)]
+        + [page([{"docType_s": "ART"}] * 200, 1200, "c2")]
+    )
+
+    result = await collect_values("x", [], ["docType_s"], 300, complete_up_to=5000)
+
+    assert [c["params"]["rows"] for c in client.calls] == ["500", "500", "200"]
+    assert result["analyzed_docs"] == 1200
+    assert result["exhaustive"] is True
+
+
+async def test_collect_values_keeps_sample_above_complete_ranking_limit(fake_httpx):
+    client = fake_httpx(json_data={"response": {"numFound": 9000, "docs": [{"docType_s": "ART"}] * 500}, "nextCursorMark": "c1"})
+
+    result = await collect_values("x", [], ["docType_s"], 300, complete_up_to=5000)
+
+    # première page pleine pour connaître numFound, mais seules 300 publications comptées
+    assert len(client.calls) == 1
+    assert result["analyzed_docs"] == 300
+    assert result["counters"]["docType_s"]["ART"] == 300
+    assert result["exhaustive"] is False
+
+
+def test_merge_authors_by_idhal_groups_name_forms_but_not_homonyms():
+    merged = merge_authors_by_idhal(
+        Counter({
+            "Cherifa Boukacem_FacetSep_cherifa-boukacem-zeghmouri": 2,
+            "Chérifa Boukacem-Zeghmouri_FacetSep_cherifa-boukacem-zeghmouri": 9,
+            "Chérifa Boukacem-Zeghmouri_FacetSep_": 1,  # sans idHAL : non rattachée
+            "A Zeller_FacetSep_": 3,
+        })
+    )
+
+    assert merged == Counter({
+        "Chérifa Boukacem-Zeghmouri_FacetSep_cherifa-boukacem-zeghmouri": 11,
+        "Chérifa Boukacem-Zeghmouri_FacetSep_": 1,
+        "A Zeller_FacetSep_": 3,
+    })
+
+
+async def test_aggregate_fields_is_complete_below_limit_and_merges_authors(fake_httpx):
+    fake_httpx(
+        json_data={
+            "response": {
+                "numFound": 2,
+                "docs": [
+                    {"authFullNameIdHal_fs": ["Cherifa Boukacem_FacetSep_cbz"]},
+                    {"authFullNameIdHal_fs": ["Chérifa Boukacem-Zeghmouri_FacetSep_cbz"]},
+                ],
+            }
+        }
+    )
+
+    result = await aggregate_fields("x", [], ["authFullNameIdHal_fs"], 1, 15)
+
+    assert result["exhaustive"] is True
+    assert "warning" not in result
+    assert result["fields"]["authFullNameIdHal_fs"]["top"][0]["count"] == 2

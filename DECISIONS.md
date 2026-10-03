@@ -179,3 +179,34 @@ limité à des noms de champs et `sort` à `champ asc|desc`.
 pas ; français et anglais ne sont pas regroupés, l'agent s'en charge) ; un auteur très productif
 peut suffire à faire « émerger » un mot-clé ; les programmes ANR structurants (IdEx, LabEx, EUR...)
 dominent les classements de projets par publications, d'où l'indicateur `structuring_program`.
+
+---
+
+## 2026-10-03 — Classements complets jusqu'à 5 000 résultats
+
+**Décision** : les classements (auteurs, laboratoires, disciplines, projets) portent sur toutes
+les publications trouvées tant qu'il y en a au plus 5 000 (`COMPLETE_RANKING_LIMIT`,
+`hal_api/utils.py`). Au-delà, on garde un échantillon (les 500 plus pertinentes ou les plus
+récentes) et la réponse contient un `warning` qui demande à l'agent d'affiner la requête plutôt
+que de présenter le classement comme représentatif. Les formes de nom d'un même idHAL sont
+regroupées ; les formes sans idHAL ne sont pas rattachées à un idHAL d'après le nom, pour ne
+pas confondre des homonymes. S'applique à `hal_solr_search` (`aggregate`),
+`search_publications_by_topic`, `search_projects` et `get_project_publications`.
+
+**Remet en cause** l'entrée « Outil générique » du 2026-10-02 (« au-delà de `max_docs`, un
+classement ne porte que sur les publications les plus pertinentes… souvent préférable : les
+derniers résultats sont les plus bruités »). Le score de pertinence est lexical : il ne mesure
+pas l'importance. Un classement sur les 500 publications les plus pertinentes (sur 2 667) a
+omis une autrice centrale du sujet (Chérifa Boukacem-Zeghmouri, 11 dépôts correspondants), dont
+les titres employaient d'autres termes que la requête. Oublier un acteur important est plus grave
+que compter un peu de bruit, que l'agent peut écarter en lisant les publications. Sur une requête
+voisine (1 600 résultats), l'échantillon de 300 lui attribuait 7 publications, le classement
+complet 32.
+
+**Coût** : mesuré à environ 80 ms de calcul Solr et 50 Ko par page de 500 publications avec un
+`fl` réduit aux champs classés, soit au plus 10 pages par classement. Reste bien moins coûteux
+qu'une facette sur un champ à forte cardinalité (auteurs, structures).
+
+**Ne s'applique pas** au profil d'un auteur (200 publications les plus récentes) ni à
+`get_structure_topics` (2 000 par période, les plus récentes) : il s'agit d'y décrire l'activité
+récente, pas de classer des personnes.

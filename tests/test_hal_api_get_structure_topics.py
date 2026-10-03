@@ -58,7 +58,7 @@ def test_compare_keywords_without_reference_keywords_returns_nothing():
 def fake_periods(monkeypatch):
     calls = []
 
-    async def fake_collect(q, fq, fields, max_docs, sort=None, page_size=100, normalize=None):
+    async def fake_collect(q, fq, fields, max_docs, sort=None, page_size=100, normalize=None, complete_up_to=0):
         calls.append({"q": q, "fq": fq, "max_docs": max_docs, "sort": sort, "page_size": page_size})
         recent = "producedDateY_i:[2023 TO 2025]" in fq
         keywords = {"llm": 5, "open science": 3} if recent else {"open science": 3, "discours": 4}

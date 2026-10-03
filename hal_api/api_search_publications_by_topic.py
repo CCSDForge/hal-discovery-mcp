@@ -3,8 +3,10 @@ import re
 
 from hal_api.client import SEARCH_URL, doc_types_fq, documents_url, first, hal_get
 from hal_api.utils import (
+    COMPLETE_RANKING_LIMIT,
     collect_values,
     counts_by_value,
+    partial_warning,
     rank_authors,
     rank_domains,
     rank_labs,
@@ -18,10 +20,9 @@ ABSTRACT_MAX_CHARS = 600
 MAX_AUTHORS = 10
 MAX_KEYWORDS = 10
 
-# Classements calculés sans facette, sur les publications les plus
-# pertinentes : au-delà, les résultats d'une recherche lexicale sont les plus
-# bruités.
-RANKING_DOCS = 300
+# Classements calculés sans facette : sur toutes les publications jusqu'à
+# COMPLETE_RANKING_LIMIT résultats, sinon sur les RANKING_DOCS plus pertinentes.
+RANKING_DOCS = 500
 RANKING_FIELDS = ["labStructIdName_fs", "authFullNameIdHal_fs", "fr_domainAllCodeLabel_fs", "producedDateY_i", "docType_s"]
 TOP_LABS = 15
 TOP_AUTHORS = 15
@@ -98,15 +99,19 @@ def _to_publication(doc: dict) -> dict:
 async def topic_rankings(query: str, fq: list[str]) -> dict:
     """
     Laboratoires, auteurs, disciplines, années et types de document les plus
-    fréquents parmi les `RANKING_DOCS` publications les plus pertinentes.
+    fréquents, sur toutes les publications jusqu'à `COMPLETE_RANKING_LIMIT`
+    résultats, sinon sur les `RANKING_DOCS` plus pertinentes.
     """
-    collected = await collect_values(query, fq, RANKING_FIELDS, RANKING_DOCS, normalize=str)
+    collected = await collect_values(
+        query, fq, RANKING_FIELDS, RANKING_DOCS, normalize=str, complete_up_to=COMPLETE_RANKING_LIMIT
+    )
     if "error" in collected:
         return {"error": collected["error"], "query_url": collected.get("query_url")}
     counters = collected["counters"]
     return {
         "analyzed_docs": collected["analyzed_docs"],
         "exhaustive": collected["exhaustive"],
+        **({"warning": w} if (w := partial_warning(collected)) else {}),
         "labs": rank_labs(counters["labStructIdName_fs"], TOP_LABS, fq, q=query, sort=None),
         "authors": rank_authors(counters["authFullNameIdHal_fs"], TOP_AUTHORS, fq, q=query, sort=None),
         "domains": rank_domains(counters["fr_domainAllCodeLabel_fs"], TOP_DOMAINS),

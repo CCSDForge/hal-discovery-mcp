@@ -46,9 +46,10 @@ async def test_search_projects_combines_referential_and_funded_publications(monk
             return {"data": {"response": {"docs": [ANR_REF_DOC, IDEX_REF_DOC]}}, "query_url": "ids"}
         return {"data": {"response": {"numFound": 1, "docs": [ANR_REF_DOC]}}, "query_url": "ref"}
 
-    async def fake_collect(q, fq, fields, max_docs, sort=None, page_size=100, normalize=None):
-        calls.append({"collect": fq, "fields": fields})
+    async def fake_collect(q, fq, fields, max_docs, sort=None, page_size=100, normalize=None, complete_up_to=0):
+        calls.append({"collect": fq, "fields": fields, "complete_up_to": complete_up_to})
         return {
+            "sort": "score desc,docid asc",
             "counters": {fields[0]: Counter({"37796_FacetSep_UNISTRA": 9, "53271_FacetSep_Intelligence Artificielle Verte": 4})},
             "docs_with_values": {},
             "analyzed_docs": 13,
@@ -69,7 +70,9 @@ async def test_search_projects_combines_referential_and_funded_publications(monk
         ("UNISTRA", 9, True),
         ("GrAI", 4, False),
     ]
+    assert "Classement partiel" in ranked["warning"]
     collect = next(c for c in calls if "collect" in c)
+    assert collect["complete_up_to"] == 5000
     assert collect["collect"] == ["producedDateY_i:[2022 TO *]", "anrProjectId_i:*"]
     assert collect["fields"] == ["anrProjectIdTitle_fs"]
 
@@ -83,7 +86,7 @@ async def test_get_project_publications_keeps_only_designated_projects(monkeypat
             "query_url": "search",
         }
 
-    async def fake_collect(q, fq, fields, max_docs, sort=None, page_size=100, normalize=None):
+    async def fake_collect(q, fq, fields, max_docs, sort=None, page_size=100, normalize=None, complete_up_to=0):
         counters = {f: Counter() for f in fields}
         counters["keyword_s"] = Counter({"neuromorphic": 3})
         # les publications de GrAI sont aussi financées par l'IdEx : ce n'est pas le projet demandé

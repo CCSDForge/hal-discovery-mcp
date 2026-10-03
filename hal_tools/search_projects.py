@@ -39,8 +39,9 @@ async def search_projects(
         Pour chaque type demandé ("anr", "europe") :
           by_title: projets dont le titre, l'acronyme ou la référence correspondent à `query`
               (référentiel HAL) : num_found, projects, query_url.
-          by_publications: projets qui financent le plus de publications sur le thème, parmi les
-              300 plus pertinentes (`analyzed_docs`, `exhaustive`) : num_publications,
+          by_publications: projets qui financent le plus de publications sur le thème, calculé
+              sur toutes ces publications jusqu'à 5000 (`exhaustive: true`), sinon sur les 500 plus
+              pertinentes avec un `warning` (affiner alors la requête) : num_publications,
               projects ([{..., count, verification_url}]), verification_url.
           Chaque projet : kind, project_id (identifiant HAL, à passer à get_project_publications),
           reference, acronym, title, validation_status ; ANR : program, call, year,

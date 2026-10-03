@@ -19,6 +19,18 @@ MAX_ROWS_PER_PAGE = 500
 FIELD_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 MAX_AGGREGATE_FIELDS = 8
 MAX_AGGREGATE_DOCS = 500
+# Jusqu'à ce nombre de résultats, les classements portent sur TOUTES les
+# publications (10 pages de 500 au plus, quelques champs courts : environ
+# 80 ms de calcul Solr par page). Un échantillon des plus pertinentes peut
+# écarter un auteur important dont les titres emploient d'autres termes que
+# la requête : au-delà, seul l'échantillon est analysé, avec un avertissement.
+COMPLETE_RANKING_LIMIT = 5000
+PARTIAL_RANKING_WARNING = (
+    "Classement partiel : seules {analyzed} publications sur {num_found} ont été analysées "
+    "({order}). Des auteurs, laboratoires ou projets importants peuvent manquer. Affiner la "
+    "requête (période, type de document, discipline) pour passer sous {limit} résultats, ce qui "
+    "donne un classement complet, plutôt que de présenter ce classement comme représentatif."
+)
 MAX_TOP = 50
 # Tris stables requis par cursorMark (clé unique en dernier). Sans requête
 # thématique (q=*:*), tous les scores sont égaux : trier par pertinence
@@ -94,11 +106,15 @@ async def collect_values(
     sort: str | None = None,
     page_size: int = MAX_ROWS_PER_PAGE,
     normalize=readable_value,
+    complete_up_to: int = 0,
 ) -> dict:
     """
     Récupère jusqu'à `max_docs` publications (pagination cursorMark, seuls
     les champs demandés) et compte en Python les valeurs de chaque champ,
     chaque valeur une fois par document, après `normalize`.
+
+    complete_up_to : si le nombre total de résultats ne le dépasse pas, toutes
+        les publications sont analysées, même au-delà de `max_docs`.
 
     sort : `default_sort(q)` si None.
     normalize : fonction appliquée à chaque valeur, ou {champ: fonction}
@@ -120,9 +136,12 @@ async def collect_values(
     pages = 0
     num_found = 0
     first_page = None
+    target = max_docs
 
-    while analyzed < max_docs:
-        params = {**base, "rows": str(min(page_size, max_docs - analyzed)), "cursorMark": cursor}
+    while analyzed < target:
+        # Première page : pleine, pour savoir au plus tôt si tout sera analysé.
+        rows = page_size if complete_up_to and first_page is None else min(page_size, target - analyzed)
+        params = {**base, "rows": str(rows), "cursorMark": cursor}
         result = await hal_get(SEARCH_URL, params)
         if "error" in result:
             return {**result, "analyzed_docs": analyzed}
@@ -133,6 +152,10 @@ async def collect_values(
         data = result["data"]
         docs = data.get("response", {}).get("docs", [])
         num_found = data.get("response", {}).get("numFound", 0)
+        if pages == 1 and num_found <= complete_up_to:
+            target = num_found
+        # La première page a pu dépasser `max_docs` : ne compter que la cible.
+        docs = docs[: max(target - analyzed, 0)]
         for doc in docs:
             for field in fields:
                 value = doc.get(field)
@@ -164,34 +187,74 @@ def top_values(counter: Counter, top: int) -> list[dict]:
     return [{"value": v, "count": c} for v, c in counter.most_common(top)]
 
 
+def partial_warning(collected: dict, limit: int = COMPLETE_RANKING_LIMIT) -> str | None:
+    """Avertissement à transmettre à l'agent si le classement n'est pas complet."""
+    if collected["exhaustive"]:
+        return None
+    order = "les plus pertinentes" if collected["sort"] == RELEVANCE_SORT else "les plus récentes"
+    return PARTIAL_RANKING_WARNING.format(
+        analyzed=collected["analyzed_docs"], num_found=collected["num_found"], order=order, limit=limit
+    )
+
+
+def merge_authors_by_idhal(counter: Counter) -> Counter:
+    """
+    authFullNameIdHal_fs : regroupe les formes de nom d'un même idHAL (ex.
+    avec ou sans accent), sous la forme la plus fréquente. Les formes sans
+    idHAL restent séparées : les rattacher à un idHAL d'après le nom seul
+    risquerait de confondre des homonymes.
+    """
+    # Clé de regroupement dans l'ordre de première apparition, pour garder
+    # un classement stable à égalité de compte.
+    groups: dict[str, Counter] = {}
+    for value, count in counter.items():
+        _, *rest = split_facet_value(value)
+        key = f"idhal:{rest[0]}" if rest and rest[0] else f"value:{value}"
+        groups.setdefault(key, Counter())[value] += count
+    return Counter({forms.most_common(1)[0][0]: forms.total() for forms in groups.values()})
+
+
 async def aggregate_fields(
     q: str, fq: list[str], fields: list[str], max_docs: int, top: int, sort: str | None = None
 ) -> dict:
     """
-    Classe les valeurs les plus fréquentes de chaque champ sur au plus
+    Classe les valeurs les plus fréquentes de chaque champ : sur toutes les
+    publications jusqu'à `COMPLETE_RANKING_LIMIT` résultats, sinon sur
     `max_docs` publications (voir `collect_values`). Les arguments doivent
     avoir été vérifiés par `check_aggregate_args`.
 
     Returns:
-        dict avec analyzed_docs, exhaustive, order, fields
-        ({champ: {distinct_values, top: [{value, count}]}}), pages, readable_url
+        dict avec analyzed_docs, num_found, exhaustive, warning (si partiel),
+        order, fields ({champ: {distinct_values, top: [{value, count}]}}),
+        pages, readable_url
         ou {"error": ..., "query_url": ...} en cas d'échec.
     """
-    collected = await collect_values(q, fq, fields, max_docs, sort)
+    collected = await collect_values(q, fq, fields, max_docs, sort, normalize=str, complete_up_to=COMPLETE_RANKING_LIMIT)
     if "error" in collected:
         return collected
-    return {
+    counters = dict(collected["counters"])
+    if "authFullNameIdHal_fs" in counters:
+        counters["authFullNameIdHal_fs"] = merge_authors_by_idhal(counters["authFullNameIdHal_fs"])
+    response = {
         "analyzed_docs": collected["analyzed_docs"],
+        "num_found": collected["num_found"],
         "exhaustive": collected["exhaustive"],
         # Quelles publications ont été analysées quand la liste n'est pas exhaustive.
         "order": "relevance" if collected["sort"] == RELEVANCE_SORT else "most_recent",
         "fields": {
-            field: {"distinct_values": len(counter), "top": top_values(counter, top)}
-            for field, counter in collected["counters"].items()
+            field: {
+                "distinct_values": len(counter),
+                "top": [{"value": readable_value(v), "count": c} for v, c in counter.most_common(top)],
+            }
+            for field, counter in counters.items()
         },
         "pages": collected["pages"],
         "readable_url": collected["readable_url"],
     }
+    warning = partial_warning(collected)
+    if warning:
+        response["warning"] = warning
+    return response
 
 
 async def count_buckets(q: str, fq: list[str], buckets: dict[str, str]) -> dict:
@@ -243,9 +306,12 @@ def rank_labs(counter: Counter, top: int, fq: list[str], q: str = "*:*", sort: s
 
 
 def rank_authors(counter: Counter, top: int, fq: list[str], q: str = "*:*", sort: str | None = None) -> list[dict]:
-    """authFullNameIdHal_fs ("nom_FacetSep_idhal", idHAL parfois vide) -> [{name, hal_id, count, verification_url}]"""
+    """
+    authFullNameIdHal_fs ("nom_FacetSep_idhal", idHAL parfois vide) -> [{name, hal_id, count, verification_url}],
+    formes de nom d'un même idHAL regroupées (`merge_authors_by_idhal`).
+    """
     authors = []
-    for value, count in counter.most_common(top):
+    for value, count in merge_authors_by_idhal(counter).most_common(top):
         name, *rest = split_facet_value(value)
         hal_id = rest[0] if rest and rest[0] else None
         author_fq = f'authIdHal_s:"{escape_phrase(hal_id)}"' if hal_id else f'authFullName_s:"{escape_phrase(name)}"'

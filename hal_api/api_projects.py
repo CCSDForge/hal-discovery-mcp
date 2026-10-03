@@ -11,9 +11,11 @@ import re
 
 from hal_api.client import HAL_API_URL, SEARCH_URL, documents_url, escape_phrase, first, hal_get
 from hal_api.utils import (
+    COMPLETE_RANKING_LIMIT,
     RECENT_SORT,
     collect_values,
     normalize_keyword,
+    partial_warning,
     rank_domains,
     rank_keywords,
     rank_labs,
@@ -46,7 +48,8 @@ KINDS = {
 # dominent les classements par nombre de publications.
 STRUCTURING_PROGRAMS = {"IDEX", "ISITE", "I-SITE", "LABX", "EQPX", "EURE", "SFRI", "IHU", "INBS", "IDEFI", "ITE"}
 
-RANKING_DOCS = 300
+# Échantillon au-delà de COMPLETE_RANKING_LIMIT résultats (voir hal_api.utils).
+RANKING_DOCS = 500
 TOP_PROJECTS = 15
 PROJECT_DOCS = 500
 TOP_KEYWORDS = 20
@@ -129,7 +132,9 @@ async def _rank_by_publications(kind: str, query: str, year_fq: list[str]) -> di
     """Projets finançant le plus de publications parmi les plus pertinentes sur le thème."""
     spec = KINDS[kind]
     fq = [*year_fq, f"{spec['id_field']}:*"]
-    collected = await collect_values(query, fq, [spec["title_field"]], RANKING_DOCS, normalize=str)
+    collected = await collect_values(
+        query, fq, [spec["title_field"]], RANKING_DOCS, normalize=str, complete_up_to=COMPLETE_RANKING_LIMIT
+    )
     if "error" in collected:
         return {"error": collected["error"], "query_url": collected.get("query_url")}
     ranked = rank_projects(collected["counters"][spec["title_field"]], TOP_PROJECTS, spec["id_field"], fq, q=query, sort=None)
@@ -144,6 +149,7 @@ async def _rank_by_publications(kind: str, query: str, year_fq: list[str]) -> di
         "num_publications": collected["num_found"],
         "analyzed_docs": collected["analyzed_docs"],
         "exhaustive": collected["exhaustive"],
+        **({"warning": w} if (w := partial_warning(collected)) else {}),
         "projects": ranked,
         "verification_url": documents_url(fq, q=query, sort=None),
     }
@@ -235,6 +241,7 @@ async def get_project_publications(project: str, kind: str = "both", rows: int =
             PROJECT_DOCS,
             sort=RECENT_SORT,
             normalize={"keyword_s": normalize_keyword},
+            complete_up_to=COMPLETE_RANKING_LIMIT,
         ),
     )
     if "error" in result:
@@ -271,6 +278,7 @@ async def get_project_publications(project: str, kind: str = "both", rows: int =
         response["themes"] = {
             "analyzed_docs": collected["analyzed_docs"],
             "exhaustive": collected["exhaustive"],
+            **({"warning": w} if (w := partial_warning(collected)) else {}),
             "keywords": rank_keywords(counters["keyword_s"], TOP_KEYWORDS, fq),
             "domains": rank_domains(counters["fr_domainAllCodeLabel_fs"], TOP_DOMAINS),
             "labs": rank_labs(counters["labStructIdName_fs"], TOP_LABS, fq),

@@ -57,10 +57,13 @@ async def hal_solr_search(
     `params`, indépendamment de rows / fl / sort) :
       aggregate: 1 à 8 champs dont classer les valeurs les plus fréquentes, ex.
           ["authFullNameIdHal_fs", "labStructIdName_fs", "journalTitle_s", "fr_domainAllCodeLabel_fs"].
-          Calculé sur `aggregate_max_docs` publications (1 à 500, défaut 300) : les plus
-          pertinentes, ou les plus récentes si q vaut *:* (`order` le précise) ; chaque valeur
-          compte une fois par document ; `aggregate_top` valeurs par champ
-          (1 à 50, défaut 15). Pour « qui / quels laboratoires / quelles revues… ».
+          Calculé sur TOUTES les publications correspondantes jusqu'à 5000 résultats. Au-delà,
+          seulement sur `aggregate_max_docs` publications (1 à 500, défaut 300) : les plus
+          pertinentes, ou les plus récentes si q vaut *:* (`order` le précise), avec un `warning`
+          (des auteurs importants peuvent manquer : affiner q / fq pour passer sous 5000).
+          Chaque valeur compte une fois par document ; les formes de nom d'un même idHAL sont
+          regroupées ; `aggregate_top` valeurs par champ (1 à 50, défaut 15).
+          Pour « qui / quels laboratoires / quelles revues… ».
       count_by: au plus 30 tranches, libellé -> filtre fq ajouté, ex.
           {"2022": "producedDateY_i:2022", "2023": "producedDateY_i:2023"} ou
           {"articles": "docType_s:ART", "thèses": "docType_s:THESE"}. Comptes EXACTS (une requête
@@ -114,11 +117,11 @@ async def hal_solr_search(
         num_found / total_returned: nombre total de documents correspondants et nombre renvoyé.
         docs: documents bruts (champs de `fl`), textes longs tronqués à 1000 caractères.
         next_cursor_mark: si cursorMark a été fourni (page suivante).
-        aggregations (si `aggregate`): analyzed_docs, exhaustive, order ("relevance" ou
-            "most_recent" : quelles publications ont été analysées), fields
-            ({champ: {distinct_values, top: [{value, count}]}}), pages, readable_url. Si `exhaustive`
-            est False, le classement ne porte que sur les publications les plus pertinentes : le
-            préciser à l'utilisateur. Pour les champs _fs, parties séparées par " | "
+        aggregations (si `aggregate`): analyzed_docs, num_found, exhaustive, warning (si
+            partiel), order ("relevance" ou "most_recent" : quelles publications ont été
+            analysées), fields ({champ: {distinct_values, top: [{value, count}]}}), pages,
+            readable_url. Si `exhaustive` est False, ne pas présenter le classement comme
+            représentatif : affiner la requête et relancer, ou à défaut le dire explicitement. Pour les champs _fs, parties séparées par " | "
             (ex. "Yolande Maury | yolande-maury").
         counts (si `count_by`): {libellé: {fq, num_found, query_url}} (ou {fq, error, query_url}).
             Les tranches peuvent se recouper : leur somme n'est pas forcément num_found.

@@ -35,8 +35,8 @@ async def get_project_publications(
         matched_projects: projets effectivement désignés par `project` (référence, acronyme,
             titre, programme...). S'il y en a plusieurs (acronyme partagé), le signaler et
             relancer avec `project_id`.
-        themes: calculés sur les 500 publications les plus récentes (`analyzed_docs`,
-            `exhaustive`) : keywords ([{keyword, count, verification_url}], en minuscules),
+        themes: calculés sur toutes les publications du projet jusqu'à 5000 (sinon les 500 plus
+            récentes, avec un `warning`) — `analyzed_docs`, `exhaustive` : keywords ([{keyword, count, verification_url}], en minuscules),
             domains ([{code, label, count}]), labs ([{struct_id, name, count, verification_url}]).
             En cas d'échec du calcul : {"error", "query_url"}.
         publications: hal_id, url, title, authors (10 premiers), num_authors, year, type, venue, doi.
