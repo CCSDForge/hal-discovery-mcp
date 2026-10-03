@@ -18,8 +18,9 @@ FIELDS = (
 
 
 # Profil thématique calculé sans facette sur les publications les plus
-# récentes de l'auteur (la quasi-totalité, sauf profils exceptionnels).
-PROFILE_DOCS = 500
+# récentes de l'auteur : toutes pour la plupart des auteurs, l'activité
+# récente pour les plus productifs.
+PROFILE_DOCS = 200
 PROFILE_FIELDS = ["fr_domainAllCodeLabel_fs", "keyword_s", "producedDateY_i", "docType_s"]
 TOP_DOMAINS = 10
 TOP_KEYWORDS = 20

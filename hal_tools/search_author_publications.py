@@ -71,7 +71,7 @@ async def search_author_publications(
                 doi (identifiant brut, None si absent), doi_url (lien
                 https://doi.org/... vers la version éditeur, None si pas de DOI), authors.
             profile (si `include_profile`):
-                Calculé sur les 500 publications les plus récentes de l'auteur pour ces
+                Calculé sur les 200 publications les plus récentes de l'auteur pour ces
                 critères (`analyzed_docs`, `exhaustive`) : first_year / last_year,
                 domains ([{code, label, count}], 10 premières disciplines HAL),
                 keywords ([{keyword, count, verification_url}], 20 premiers mots-clés,

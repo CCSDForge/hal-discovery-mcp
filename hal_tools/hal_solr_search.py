@@ -45,7 +45,9 @@ async def hal_solr_search(
         diffèrent de ceux de "search" : commencer par fl=* et rows=1 pour les découvrir.
 
     PARAMÈTRES (`params`, dictionnaire Solr ; liste de chaînes pour un paramètre répété) :
-      q, fq, fl, sort, rows (0 à 100, défaut 10), start (≤ 10000), cursorMark, q.op, df.
+      q, fq, fl, sort, rows (0 à 100, défaut 10), start (≤ 1000 ; au-delà, paginer avec cursorMark
+      et un tri se terminant par docid, ex. sort="producedDate_tdate desc,docid asc", cursorMark="*"),
+      q.op, df. fl=* n'est accepté qu'avec rows ≤ 5, pour découvrir les champs.
       wt est imposé (json). Tout autre paramètre est refusé, en particulier facet.*, group.* et
       stats.* (trop coûteux pour HAL) : pour classer ou compter, utiliser les options ci-dessous.
       Sont aussi refusés : les paramètres locaux {!...} (dans q, fq...), les fonctions dans `sort`

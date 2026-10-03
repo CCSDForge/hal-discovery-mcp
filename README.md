@@ -40,7 +40,7 @@ Nous avons développé une série de 10 outils, organisés selon quatre parcours
 
 - `search_structures` : recherche des laboratoires, universités et institutions (identifiant HAL) ;
 - `search_structure_publications` : publications les plus récentes d'une ou plusieurs structures ;
-- `get_structure_topics` : travaux principaux (mots-clés, disciplines) et thématiques émergentes ou en recul.
+- `get_structure_topics` : travaux principaux (mots-clés, disciplines) et thématiques émergentes.
 
 ---
 
@@ -51,11 +51,11 @@ Nous avons développé une série de 10 outils, organisés selon quatre parcours
 
 ---
 
-## 5. Requête libre : accès générique à l'API Solr de HAL
+## 5. Requête libre : pour les questions que les autres outils ne couvrent pas
 
-- `hal_solr_search` : l'agent compose lui-même une requête Solr (recherche, filtres, tri, pagination) sur les dépôts ou les référentiels HAL, pour les questions qu'aucun outil spécialisé ne couvre. Sur demande, le serveur MCP y ajoute le classement des auteurs, laboratoires, revues ou disciplines (`aggregate`) et des comptes exacts par tranche, par exemple par année (`count_by`).
+- `hal_solr_search` : quand aucun outil ne correspond à la question, LLM écrit lui-même la requête à envoyer à HAL. Il peut ainsi répondre à des questions plus variées.
 
-L'outil n'utilise ni facette, ni regroupement, ni statistique Solr, coûteux pour HAL : ces calculs sont faits en Python (`hal_api/utils.py`). La requête envoyée est toujours renvoyée, lisible et cliquable.
+Pour que la réponse reste vérifiable, la requête utilisée est toujours affichée, avec un lien qui permet de la relancer dans HAL.
 
 ---
 # Promptothèque
@@ -63,10 +63,10 @@ L'outil n'utilise ni facette, ni regroupement, ni statistique Solr, coûteux pou
 Pour obtenir des réponses fiables, il est recommandé de formuler les questions en lien avec les fonctionnalités couvertes par les outils disponibles. 
 Vous trouverez ci-dessous une série d'exemples de requêtes pouvant être utilisées directement ou adaptées selon vos besoins.
 
-## Recherche d'auteurs
+## Profil d'un auteur
 
-- Recherche l'auteur **Prénom Nom** dans HAL.
-- Donne-moi l'identifiant HAL de **Prénom Nom**.
+- Recherche l'auteur **Prénom Nom** dans HAL. 
+- Sur quoi travaille **Prénom Nom** ? Dans quel domaine ?
 - Quelles sont les publications récentes de **Prénom Nom** ?
 - Donne les publications de **Prénom Nom** entre 2022 et 2024.
 - Quel est le laboratoire de rattachement de **Prénom Nom** ?
@@ -78,7 +78,6 @@ Vous trouverez ci-dessous une série d'exemples de requêtes pouvant être utili
 - Recherche l'identifiant HAL de **CCSD**.
 - Recherche la structure **CREATIS**.
 - Quelles sont les publications les plus récentes des **URFIST** ?
-- Quelles sont les dernières publications de **CREATIS** ?
 
 ## Thématiques d'une structure
 
@@ -88,43 +87,17 @@ Vous trouverez ci-dessous une série d'exemples de requêtes pouvant être utili
 
 ## Recherche de références sur un sujet
 
-- Quelles sont les **pratiques informationnelles des chercheurs** ? Donne-moi une liste de références.
+- Quelles sont les **pratiques informationnelles des chercheurs** ? Appui toi sur le serveur MCP de HAL.
 - Trouve des articles et des thèses récents sur **la science ouverte en SHS** depuis 2020.
 - Quels travaux en sciences de l'information portent sur **l'intelligence artificielle en éducation** ?
 - Quels laboratoires publient le plus sur **les humanités numériques** ?
-
-## Profil d'un auteur
-
-- Sur quoi travaille **Prénom Nom** ? Dans quel domaine ?
 
 ## Projets ANR et européens
 
 - Quels projets ANR portent sur **l'intelligence artificielle en éducation** ?
 - Quels projets européens financent des recherches sur **les grands modèles de langue** ?
-- Quelles sont les publications et les thématiques du projet ANR **GrAI** ?
-
-## Requêtes libres (`hal_solr_search`)
-
-- Quel est l'état de l'art sur les **pratiques informationnelles liées aux LLM** depuis 2022, et quels sont les auteurs qui publient le plus sur ce sujet ? Montre-moi la requête Solr utilisée.
-- Combien de **thèses en informatique** ont été déposées chaque année depuis 2015 ?
-- Quelles revues publient le plus d'articles sur **la science ouverte** ?
+- Quelles sont les publications et les thématiques du projet ANR **OPEN IT** ?
 ---
-
-# Vérification des résultats
-
-Chaque outil renvoie des liens cliquables vers l'API HAL (`verification_url` ou `verification_urls`) qui listent les publications, auteurs ou structures derrière les chiffres retournés. Dans chaque lien, `numFound` en tête de la réponse est le nombre exact à comparer avec celui de l'outil (pour un élément de classement, il porte sur tous les résultats, alors que le classement ne porte que sur les publications analysées : il peut donc être plus grand) ; pour les publications, les 100 plus récentes sont listées (titre, lien HAL, date, type).
-
-| Outil | Liens fournis |
-|---|---|
-| `search_authors`, `search_structures` | un lien vers les résultats du référentiel |
-| `search_author_publications` | un lien vers les publications de l'auteur, avec les mêmes filtres de dates, et un par mot-clé du profil |
-| `get_author_affiliations` | un lien vers toutes les publications de l'auteur, et un par structure (publications où l'auteur y est rattaché) |
-| `search_publications_by_topic` | un lien vers tous les résultats, dans le même ordre que l'outil, et un par laboratoire et par auteur classés |
-| `search_structure_publications` | un lien vers toutes les publications, et un par structure |
-| `get_structure_topics` | un lien par période analysée, et un par mot-clé |
-| `search_projects` | les requêtes aux référentiels, un lien vers les publications financées sur le thème, et un par projet classé |
-| `get_project_publications` | un lien vers les publications du projet, et un par mot-clé et par laboratoire |
-| `hal_solr_search` | la requête exacte envoyée à HAL (`query_url`), sa forme lisible (`readable_url`), un lien listant les publications par pertinence (`verification_url`) et un lien par tranche de `count_by` ; le tout regroupé dans `solr_queries`, un bloc Markdown que l'agent recopie en fin de réponse |
 
 # Description détaillée des outils
 

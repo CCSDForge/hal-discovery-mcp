@@ -12,7 +12,9 @@ from collections import Counter
 
 from hal_api.client import SEARCH_URL, documents_url, escape_phrase, hal_get
 
-MAX_ROWS_PER_PAGE = 100
+# Pages larges : seuls quelques champs courts sont demandés, et chaque
+# requête évitée compte davantage pour HAL que la taille de la page.
+MAX_ROWS_PER_PAGE = 500
 
 FIELD_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 MAX_AGGREGATE_FIELDS = 8

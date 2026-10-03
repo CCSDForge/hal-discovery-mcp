@@ -34,6 +34,10 @@ def test_validate_params_normalizes_values():
         {"q": "*:*", "sort": "producedDate_tdate"},
         {"q": "*:*", "df": "title_t abstract_t"},
         {"q": "*:*", "q.op": "XOR"},
+        # pagination profonde et fl=* : coûteux pour HAL (mesuré)
+        {"q": "*:*", "start": 1001},
+        {"q": "*:*", "fl": "*"},  # rows=10 par défaut
+        {"q": "*:*", "fl": "halId_s,*", "rows": 6},
     ],
 )
 def test_validate_params_rejects_facets_unsafe_or_oversized_requests(params):
@@ -87,7 +91,7 @@ async def test_hal_solr_search_reports_solr_syntax_error_with_sent_params(fake_h
 async def test_hal_solr_search_queries_referentials(fake_httpx):
     client = fake_httpx(json_data={"response": {"numFound": 1, "docs": [{"docid": 1}]}})
 
-    await hal_solr_search("ref/structure", {"q": "acronym_s:CCSD", "fl": "*"})
+    await hal_solr_search("ref/structure", {"q": "acronym_s:CCSD", "fl": "*", "rows": 1})
 
     assert client.calls[0]["url"] == "https://api.archives-ouvertes.fr/ref/structure/"
 
@@ -176,3 +180,13 @@ async def test_hal_solr_search_aggregates_most_recent_docs_without_thematic_quer
     aggregation_call = next(c for c in client.calls if "cursorMark" in c["params"])
     assert aggregation_call["params"]["sort"] == "producedDate_tdate desc,docid asc"
     assert result["aggregations"]["order"] == "most_recent"
+
+
+def test_validate_params_allows_all_fields_only_to_discover_them():
+    assert validate_params({"q": "*:*", "fl": "*", "rows": 5})["fl"] == "*"
+    assert validate_params({"q": "*:*", "start": 1000})["start"] == "1000"
+
+
+def test_deep_paging_error_points_to_cursor_mark():
+    with pytest.raises(ValueError, match="cursorMark"):
+        validate_params({"q": "*:*", "start": 5000})

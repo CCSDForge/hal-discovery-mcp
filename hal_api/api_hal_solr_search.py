@@ -37,7 +37,13 @@ ENDPOINTS = {
 ALLOWED_PARAMS = {"q", "fq", "fl", "sort", "start", "rows", "cursorMark", "q.op", "df"}
 
 MAX_ROWS = 100
-MAX_START = 10000
+DEFAULT_ROWS = 10
+# Au-delà, la pagination par `start` coûte cher à HAL (2,4 s de calcul Solr
+# mesurées à start=10000) : cursorMark donne les mêmes documents à coût constant.
+MAX_START = 1000
+# fl=* renvoie tous les champs stockés (exports BibTeX, XML...) : environ
+# 4 Mo pour 100 documents. Réservé à la découverte des champs.
+MAX_ROWS_ALL_FIELDS = 5
 # Les champs texte longs (résumés, texte intégral) saturent vite le contexte
 # de l'agent : ils sont tronqués dans la réponse, jamais dans la requête.
 MAX_FIELD_CHARS = 1000
@@ -78,7 +84,12 @@ def validate_params(params: dict) -> dict:
 
     _check_content(normalized)
     _check_int(normalized, "rows", 0, MAX_ROWS)
-    _check_int(normalized, "start", 0, MAX_START)
+    _check_int(normalized, "start", 0, MAX_START, hint=" ; pour aller plus loin, paginer avec cursorMark")
+    if "*" in re.split(r"[,\s]+", normalized.get("fl", "")) and int(normalized.get("rows", DEFAULT_ROWS)) > MAX_ROWS_ALL_FIELDS:
+        raise ValueError(
+            f"fl=* n'est accepté qu'avec rows <= {MAX_ROWS_ALL_FIELDS} (pour découvrir les champs) : "
+            "lister ensuite les champs utiles dans fl"
+        )
     if "start" in normalized and "cursorMark" in normalized:
         raise ValueError("'start' et 'cursorMark' sont incompatibles : utiliser l'un ou l'autre")
 
@@ -101,12 +112,12 @@ def _check_content(params: dict) -> None:
         raise ValueError("'q.op' doit valoir AND ou OR")
 
 
-def _check_int(params: dict, key: str, low: int, high: int) -> None:
+def _check_int(params: dict, key: str, low: int, high: int, hint: str = "") -> None:
     if key not in params:
         return
     value = params[key]
     if isinstance(value, list) or not re.fullmatch(r"-?\d+", value) or not low <= int(value) <= high:
-        raise ValueError(f"{key!r} doit être un entier entre {low} et {high} (reçu : {value!r})")
+        raise ValueError(f"{key!r} doit être un entier entre {low} et {high} (reçu : {value!r}){hint}")
 
 
 def _truncate_value(value):
@@ -150,7 +161,7 @@ async def hal_solr_search(
         return {"error": str(e), "query_url": None}
 
     url = ENDPOINTS[endpoint]
-    params.setdefault("rows", "10")
+    params.setdefault("rows", str(DEFAULT_ROWS))
 
     result = await hal_get(url, params)
     if "error" in result:

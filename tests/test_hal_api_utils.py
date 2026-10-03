@@ -68,13 +68,23 @@ async def test_aggregate_fields_pages_with_cursor_and_counts_in_python(fake_http
     assert result["fields"]["producedDateY_i"]["top"] == [{"value": "2024", "count": 2}]
 
 
-async def test_aggregate_fields_stops_at_max_docs(fake_httpx):
+async def test_collect_values_stops_at_max_docs(fake_httpx):
     client = fake_httpx(responses=[page([{"docType_s": "ART"}] * 100, 5000, f"c{i}") for i in range(5)])
 
-    result = await aggregate_fields("x", [], ["docType_s"], 250, 15)
+    result = await collect_values("x", [], ["docType_s"], 250, page_size=100)
 
     assert [c["params"]["rows"] for c in client.calls] == ["100", "100", "50"]
     assert result["exhaustive"] is False
+
+
+async def test_aggregate_fields_uses_large_pages_to_limit_requests(fake_httpx):
+    client = fake_httpx(json_data={"response": {"numFound": 5000, "docs": [{"docType_s": "ART"}] * 500}, "nextCursorMark": "c1"})
+
+    result = await aggregate_fields("x", [], ["docType_s"], 500, 15)
+
+    # 500 publications en une seule requête
+    assert [c["params"]["rows"] for c in client.calls] == ["500"]
+    assert result["analyzed_docs"] == 500
 
 
 async def test_count_buckets_runs_one_rows0_query_per_bucket(fake_httpx):
