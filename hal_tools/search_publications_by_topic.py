@@ -21,15 +21,19 @@ async def search_publications_by_topic(
 ):
     """
     search_publications_by_topic - Recherche dans HAL des publications portant sur un sujet ou une
-    question de recherche, pour proposer une liste de références pertinentes.
+    question de recherche, pour proposer une liste de références pertinentes, ainsi que les
+    laboratoires et les auteurs qui publient le plus sur ce sujet.
 
-    UTILISER CET OUTIL lorsque l'utilisateur cherche des travaux sur un thème, par exemple :
+    UTILISER CET OUTIL lorsque l'utilisateur cherche des travaux, des laboratoires ou des
+    chercheurs sur un thème, par exemple :
       - "Quelles sont les pratiques informationnelles des chercheurs ?"
       - "Trouve des références sur la science ouverte en SHS"
-      - "Quels travaux portent sur l'intelligence artificielle en éducation depuis 2020 ?"
+      - "Quels laboratoires travaillent sur l'intelligence artificielle en éducation ?"
+      - "Qui publie sur les humanités numériques depuis 2020 ?"
 
-    NE PAS utiliser cet outil pour les publications d'un auteur précis (`search_author_publications`)
-    ni pour la production d'une structure (`get_publication_statistics_by_structure`).
+    NE PAS utiliser cet outil pour les publications d'un auteur précis (`search_author_publications`),
+    les publications d'une structure (`search_structure_publications`) ni les thématiques d'une
+    structure (`get_structure_topics`). Pour les projets ANR / européens : `search_projects`.
 
     CONSTRUCTION DE LA REQUÊTE (`query`, syntaxe Solr) :
       La recherche est lexicale (mots présents dans le titre, le résumé, les mots-clés...), pas
@@ -45,7 +49,7 @@ async def search_publications_by_topic(
         AND (chercheur OR chercheurs OR researchers OR scientists OR doctorants)
       Opérateurs AND / OR / NOT en majuscules ; guillemets et parenthèses équilibrés.
       Si trop peu de résultats : élargir (plus de synonymes, retirer un concept). Si trop de bruit :
-      ajouter un concept, filtrer par `domain` (voir `facets.by_domain`) ou par période.
+      ajouter un concept, filtrer par `domain` (voir `rankings.domains`) ou par période.
       Ne pas hésiter à lancer plusieurs recherches (ex. formulation française puis anglaise).
 
     Parameters:
@@ -56,7 +60,7 @@ async def search_publications_by_topic(
             Autres codes possibles : HDR, REPORT, MEM (mémoire), POSTER, PROCEEDINGS, OTHER...
             Liste vide [] : tous les types.
         domain: Code de discipline HAL pour filtrer (sous-domaines inclus), ex. "shs" ou "shs.info".
-            Utiliser un code renvoyé dans `facets.by_domain` plutôt que de le deviner.
+            Utiliser un code renvoyé dans `rankings.domains` plutôt que de le deviner.
         sort: "relevance" (par défaut, les plus pertinentes d'abord) ou "date" (les plus récentes d'abord).
         rows: Nombre de publications retournées (1 à 50, par défaut : 20).
 
@@ -65,15 +69,23 @@ async def search_publications_by_topic(
             retourné, et `True` si la liste n'est pas exhaustive.
         publications: pour chacune hal_id, url, title, authors (10 premiers), num_authors, year, type,
             venue (revue, conférence ou ouvrage), doi, keywords, abstract (tronqué), language.
-        facets: répartition de TOUS les résultats (pas seulement ceux retournés) :
-            by_domain ([{code, label, count}], 10 premières disciplines), by_doc_type, by_year.
+        rankings: calculés sur les 300 publications les plus pertinentes (`analyzed_docs`) ;
+            `exhaustive` vaut False si `num_found` est plus grand :
+            labs ([{struct_id, name, count, verification_url}], 15 premiers laboratoires),
+            authors ([{name, hal_id, count, verification_url}], 15 premiers),
+            domains ([{code, label, count}], 10 premières disciplines), by_year, by_doc_type.
+            `count` = nombre de publications analysées concernées ; le `numFound` du lien
+            `verification_url` porte sur TOUS les résultats et peut donc être plus grand.
+            En cas d'échec du calcul : {"error", "query_url"} (les publications restent valables).
         verification_url: lien cliquable vers l'API HAL listant les résultats dans le même ordre ;
             `numFound` en tête de la réponse est égal à `num_found`.
         query_url: URL exacte de la requête envoyée à l'API HAL.
 
     PRÉSENTATION ET RÈGLES ANTI-HALLUCINATION :
       - La pertinence est calculée sur les mots, pas sur la qualité ou l'influence (HAL ne fournit
-        pas de nombre de citations). Lire titre, résumé et mots-clés, et écarter les publications
+        pas de nombre de citations). De même, les laboratoires et auteurs « dominants » sont ceux qui
+        ont le plus de dépôts HAL correspondant à la requête : le dire, et préciser si le classement
+        n'est pas exhaustif (`exhaustive: false`). Lire titre, résumé et mots-clés, et écarter les publications
         hors sujet plutôt que de les présenter.
       - Ne citer que des références présentes dans `publications`, avec leur lien `url`. Ne jamais
         inventer ni compléter une référence à partir de connaissances générales.

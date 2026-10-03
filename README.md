@@ -6,7 +6,9 @@ Ces outils s’appuient sur les [différentes endpoints de l'API HAL](https://ap
 
 À travers l’API de recherche (`search`), le MCP permet d’interroger les informations bibliographiques des publications scientifiques, notamment : le titre ; le résumé ; les auteurs ; les dates de publication ; le type de document et les identifiants associés (DOI, URI, etc.).
 
-Le serveur consulte également d'autres référentiels HAL :`author` : référentiel des auteurs ; `structure` : référentiel des structures de recherche et `anrproject` : référentiel des projets ANR. 
+Le serveur consulte également d'autres référentiels HAL : `author` (auteurs), `structure` (structures de recherche), `anrproject` (projets ANR) et `europeanproject` (projets européens).
+
+Aucun outil n'utilise de facette Solr, coûteuse pour HAL : les classements (laboratoires, auteurs, mots-clés, disciplines, projets) sont calculés par le serveur MCP à partir de requêtes légères (`hal_api/utils.py`).
 
 ---
 # Connecter votre agent au serveur HAL MCP
@@ -18,33 +20,42 @@ Le serveur **HAL MCP** est actuellement disponible sur l’environnement de pré
 ---
 # Outils disponibles
 
-Nous avons développé une série de 9 outils permettant d’interroger les métadonnées HAL selon trois niveaux d’analyse :
+Nous avons développé une série de 10 outils, organisés selon quatre parcours, plus un outil de requête libre :
 
-## 1. Niveau auteur : recherche et analyse des profils scientifiques
+## 1. Sujet : publications et acteurs d'un thème
 
-Ces outils permettent d’explorer les informations relatives aux auteurs :
-
-- `search_authors` : recherche d’auteurs dans HAL ;
-- `search_author_publications` : consultation de leurs publications ;
-- `get_author_affiliations` : identification de leurs affiliations. 
+- `search_publications_by_topic` : publications portant sur un sujet ou une question de recherche, avec les laboratoires, auteurs et disciplines qui publient le plus sur ce sujet.
 
 ---
 
-## 2. Niveau structure : analyse des activités de publication d'une struture
+## 2. Auteur : qui est-ce, sur quoi travaille-t-il, où ?
 
-Ces outils permettent d’analyser les structures de recherche référencées dans HAL :
+- `search_authors` : recherche d'auteurs dans HAL (identifiant idHAL) ;
+- `search_author_publications` : publications d'un auteur et profil thématique (disciplines, mots-clés, période d'activité) ;
+- `get_author_affiliations` : laboratoires et établissements de rattachement au fil du temps.
 
-- `search_structures` : recherche des laboratoires, universités et institutions ;
+---
+
+## 3. Structure : identifiant, publications, thématiques
+
+- `search_structures` : recherche des laboratoires, universités et institutions (identifiant HAL) ;
 - `search_structure_publications` : publications les plus récentes d'une ou plusieurs structures ;
-- `get_publication_statistics_by_structure` : statistiques de production scientifique ;
-- `count_anr_publications` : analyse des publications financées par l’ANR et mesure du niveau d’accès ouvert (*open access*) ;
-- `search_lab_keyword_statistics` : identification des thématiques émergentes via les mots-clés des publications.
+- `get_structure_topics` : travaux principaux (mots-clés, disciplines) et thématiques émergentes ou en recul.
 
 ---
 
-## 3. Niveau thématique : recherche de références sur un sujet
+## 4. Projets ANR et européens
 
-- `search_publications_by_topic` : recherche de publications portant sur un sujet ou une question de recherche, pour constituer une liste de références.
+- `search_projects` : projets liés à un thème, par leur titre (référentiels) et par les publications qu'ils financent ;
+- `get_project_publications` : publications d'un projet et leurs thématiques.
+
+---
+
+## 5. Requête libre : accès générique à l'API Solr de HAL
+
+- `hal_solr_search` : l'agent compose lui-même une requête Solr (recherche, filtres, tri, pagination) sur les dépôts ou les référentiels HAL, pour les questions qu'aucun outil spécialisé ne couvre. Sur demande, le serveur MCP y ajoute le classement des auteurs, laboratoires, revues ou disciplines (`aggregate`) et des comptes exacts par tranche, par exemple par année (`count_by`).
+
+L'outil n'utilise ni facette, ni regroupement, ni statistique Solr, coûteux pour HAL : ces calculs sont faits en Python (`hal_api/utils.py`). La requête envoyée est toujours renvoyée, lisible et cliquable.
 
 ---
 # Promptothèque
@@ -69,44 +80,51 @@ Vous trouverez ci-dessous une série d'exemples de requêtes pouvant être utili
 - Quelles sont les publications les plus récentes des **URFIST** ?
 - Quelles sont les dernières publications de **CREATIS** ?
 
-## Statistiques de publications
+## Thématiques d'une structure
 
-- Donne les statistiques de publication (nombre de publications, répartition par type de document) de **l'Université Claude Bernard Lyon 1** entre 2018 et 2023.
-- Combien de publications a produites **CREATIS** entre 2020 et 2024 ?
-- Quelle est l'évolution du nombre de publications de **LIRIS** entre 2019 et 2024 ?
-
-## Publications financées par l'ANR
-
-- Combien de publications financées par des projets ANR en accès ouvert possède **l'Université Claude Bernard Lyon 1** en 2025 ?
-- Combien de publications financées par l'ANR sont affiliées à **CREATIS** entre 2020 et 2024 ?
-
-## Analyse des thématiques de recherche
-
-- Quels sont les principaux domaines de recherche de **l'Université Claude Bernard Lyon 1** en 2021 ?
-- Quels sont les mots-clés les plus fréquents des publications de **CREATIS** en 2023 ?
-- Quelles sont les thématiques émergentes de **LIRIS** en 2024 ?
+- Sur quoi travaille le laboratoire **ELICO** ?
+- Quelles sont les thématiques émergentes du **LIRIS** depuis 2023 ?
+- Quels sont les principaux domaines de recherche de **l'Université Claude Bernard Lyon 1** entre 2020 et 2022 ?
 
 ## Recherche de références sur un sujet
 
 - Quelles sont les **pratiques informationnelles des chercheurs** ? Donne-moi une liste de références.
 - Trouve des articles et des thèses récents sur **la science ouverte en SHS** depuis 2020.
 - Quels travaux en sciences de l'information portent sur **l'intelligence artificielle en éducation** ?
+- Quels laboratoires publient le plus sur **les humanités numériques** ?
+
+## Profil d'un auteur
+
+- Sur quoi travaille **Yolande Maury** ? Dans quel domaine ?
+
+## Projets ANR et européens
+
+- Quels projets ANR portent sur **l'intelligence artificielle en éducation** ?
+- Quels projets européens financent des recherches sur **les grands modèles de langue** ?
+- Quelles sont les publications et les thématiques du projet ANR **GrAI** ?
+
+## Requêtes libres (`hal_solr_search`)
+
+- Quel est l'état de l'art sur les **pratiques informationnelles liées aux LLM** depuis 2022, et quels sont les auteurs qui publient le plus sur ce sujet ? Montre-moi la requête Solr utilisée.
+- Combien de **thèses en informatique** ont été déposées chaque année depuis 2015 ?
+- Quelles revues publient le plus d'articles sur **la science ouverte** ?
 ---
 
 # Vérification des résultats
 
-Chaque outil renvoie des liens cliquables vers l'API HAL (`verification_url` ou `verification_urls`) qui listent les publications, auteurs ou structures derrière les chiffres retournés. Dans chaque lien, `numFound` en tête de la réponse est le nombre exact à comparer avec celui de l'outil ; pour les publications, les 100 plus récentes sont listées (titre, lien HAL, date, type).
+Chaque outil renvoie des liens cliquables vers l'API HAL (`verification_url` ou `verification_urls`) qui listent les publications, auteurs ou structures derrière les chiffres retournés. Dans chaque lien, `numFound` en tête de la réponse est le nombre exact à comparer avec celui de l'outil (pour un élément de classement, il porte sur tous les résultats, alors que le classement ne porte que sur les publications analysées : il peut donc être plus grand) ; pour les publications, les 100 plus récentes sont listées (titre, lien HAL, date, type).
 
 | Outil | Liens fournis |
 |---|---|
 | `search_authors`, `search_structures` | un lien vers les résultats du référentiel |
-| `search_author_publications` | un lien vers les publications de l'auteur, avec les mêmes filtres de dates |
+| `search_author_publications` | un lien vers les publications de l'auteur, avec les mêmes filtres de dates, et un par mot-clé du profil |
 | `get_author_affiliations` | un lien vers toutes les publications de l'auteur, et un par structure (publications où l'auteur y est rattaché) |
-| `get_publication_statistics_by_structure` | toute la période, par année, par type de document |
-| `count_anr_publications` | total, accès ouvert, hors accès ouvert |
-| `search_lab_keyword_statistics` | toutes les publications de l'année, et un par mot-clé (30 premiers au plus) |
-| `search_publications_by_topic` | un lien vers tous les résultats, dans le même ordre que l'outil |
+| `search_publications_by_topic` | un lien vers tous les résultats, dans le même ordre que l'outil, et un par laboratoire et par auteur classés |
 | `search_structure_publications` | un lien vers toutes les publications, et un par structure |
+| `get_structure_topics` | un lien par période analysée, et un par mot-clé |
+| `search_projects` | les requêtes aux référentiels, un lien vers les publications financées sur le thème, et un par projet classé |
+| `get_project_publications` | un lien vers les publications du projet, et un par mot-clé et par laboratoire |
+| `hal_solr_search` | la requête exacte envoyée à HAL (`query_url`), sa forme lisible (`readable_url`), un lien listant les publications par pertinence (`verification_url`) et un lien par tranche de `count_by` ; le tout regroupé dans `solr_queries`, un bloc Markdown que l'agent recopie en fin de réponse |
 
 # Description détaillée des outils
 
@@ -120,6 +138,7 @@ Retourne les formes auteur correspondantes avec leur identifiant HAL (`hal_id`) 
 
 * `search_author_publications` : Recherche les publications d’un auteur dans HAL, les plus récentes d’abord, éventuellement sur une période donnée.
 Retourne le nombre total de publications trouvées et les métadonnées des publications : titre ; résumé ; date de production ; type de document ; DOI lorsqu’il est disponible ; auteurs.
+Retourne aussi un profil thématique, calculé sur ses 500 publications les plus récentes au plus : disciplines et mots-clés les plus fréquents, première et dernière année, répartition par type.
 
 | Paramètre | Type | Description |
 |---|---|---|
@@ -128,6 +147,7 @@ Retourne le nombre total de publications trouvées et les métadonnées des publ
 | `start_date` | optionnel | Date de début incluse (YYYY-MM-DD) |
 | `end_date` | optionnel | Date de fin incluse (YYYY-MM-DD) |
 | `rows` | optionnel (défaut : 50, max : 200) | Nombre maximal de publications retournées |
+| `include_profile` | optionnel (défaut : `true`) | Calculer le profil thématique |
 
 \* au moins un des deux ; `hal_id` est prioritaire si les deux sont fournis.
 
@@ -148,7 +168,7 @@ Retourne les structures correspondantes avec : leur identifiant HAL (`id`) ; leu
 | `rows` | optionnel (défaut : 50, max : 200) | Nombre maximal de structures retournées |
 
 * `search_structure_publications` : Liste les publications les plus récentes d'une ou plusieurs structures de recherche, fusionnées et triées par date.
-Retourne pour chaque publication : titre, auteurs, date, type, revue/conférence/ouvrage, lien HAL, lien DOI s'il existe, et la ou les structures concernées ; pour chaque structure : nom, sigle, tutelles, statut et nombre de publications.
+Retourne pour chaque publication : titre, auteurs, date, type, revue/conférence/ouvrage, lien HAL, lien DOI s'il existe, et la ou les structures concernées ; pour chaque structure : nom, sigle, tutelles, statut et nombre exact de publications (une requête `rows=0` par structure).
 
 | Paramètre | Type | Description |
 |---|---|---|
@@ -157,35 +177,19 @@ Retourne pour chaque publication : titre, auteurs, date, type, revue/conférence
 | `doc_types` | optionnel (défaut : tous) | Types de document (ex. `ART`, `COMM`) |
 | `rows` | optionnel (défaut : 10, max : 50) | Nombre de publications retournées |
 
-* `get_publication_statistics_by_structure` : Compte les publications d’une structure de recherche enregistrée dans HAL sur une période donnée.
-Retourne le nombre de publications par année de production et par type de document. Le comptage est fait par HAL (facettes) : il est exact et exhaustif.
+* `get_structure_topics` : Décrit les thématiques d'une ou plusieurs structures sur une période (par défaut les 3 dernières années) : mots-clés et disciplines les plus fréquents et, par comparaison avec la période précédente de même durée, mots-clés émergents (nouveaux ou dont la part a au moins doublé) ou en recul.
+Les publications de chaque période (2 000 au plus, les plus récentes) sont parcourues avec seulement leurs mots-clés et disciplines ; les mots-clés sont regroupés sans tenir compte de la casse.
 
 | Paramètre | Type | Description |
 |---|---|---|
-| `struct_id` | obligatoire | Identifiant HAL de la structure |
-| `start_year` | obligatoire | Année de début |
-| `end_year` | obligatoire | Année de fin |
-
-* `count_anr_publications` : Compte les publications financées par des projets ANR, pour une structure de recherche et une période données.
-Retourne : le nombre de publications financées par l’ANR ; dont en accès ouvert / hors accès ouvert ; la part en accès ouvert.
-
-| Paramètre     | Type | Description                           |
-|---------------|---|---------------------------------------|
-| `struct_id`   | optionnel | Identifiant HAL de la structure (toutes structures si absent) |
-| `start_date`  | optionnel | Date de début incluse (YYYY-MM-DD, date de production) |
-| `end_date`    | optionnel | Date de fin incluse (YYYY-MM-DD) |
-
-* `search_lab_keyword_statistics` : Analyse les thématiques émergentes d’une structure de recherche enregistrée dans HAL à partir de la distribution des mots-clés associés aux publications.
-Retourne : le nombre total de publications pour une année donnée ; une agrégation des mots-clés classés selon leur fréquence d’apparition.
-
-| Paramètre | Type | Description |
-|---|---|---|
-| `struct_id` | obligatoire | Identifiant HAL de la structure |
-| `year` | obligatoire | Année de production analysée |
-| `limit` | optionnel (défaut : 30, max : 200) | Nombre maximal de mots-clés retournés |
+| `struct_ids` | obligatoire | Identifiants HAL des structures (1 à 20) |
+| `start_year` / `end_year` | optionnel (défaut : les 3 dernières années) | Période analysée, 30 ans au plus |
+| `compare` | optionnel (défaut : `true`) | Comparer avec la période précédente |
+| `doc_types` | optionnel (défaut : tous) | Types de document |
+| `top` | optionnel (défaut : 20, max : 50) | Nombre de mots-clés retournés |
 
 * `search_publications_by_topic` : Recherche des publications HAL portant sur un sujet ou une question de recherche, classées par pertinence ou par date.
-Retourne une liste de références (titre, auteurs, année, type, revue/conférence/ouvrage, DOI, mots-clés, résumé tronqué, lien HAL) et la répartition de tous les résultats par discipline, type de document et année.
+Retourne une liste de références (titre, auteurs, année, type, revue/conférence/ouvrage, DOI, mots-clés, résumé tronqué, lien HAL) et, calculés sur les 300 publications les plus pertinentes, les laboratoires, auteurs et disciplines les plus fréquents et la répartition par année et par type.
 La recherche est lexicale : l'agent construit la requête en combinant synonymes et traduction anglaise (ex. `("pratiques informationnelles" OR "information practices") AND (chercheurs OR researchers)`).
 
 | Paramètre | Type | Description |
@@ -196,3 +200,33 @@ La recherche est lexicale : l'agent construit la requête en combinant synonymes
 | `domain` | optionnel | Code de discipline HAL, sous-domaines inclus (ex. `shs.info`) |
 | `sort` | optionnel (défaut : `relevance`) | `relevance` ou `date` |
 | `rows` | optionnel (défaut : 20, max : 50) | Nombre de références retournées |
+
+* `search_projects` : Recherche les projets ANR et européens liés à un thème : d'une part les projets dont le titre, l'acronyme ou la référence correspondent (référentiels `anrproject` et `europeanproject`), d'autre part ceux qui financent le plus de publications sur ce thème (300 publications les plus pertinentes). Les programmes ANR structurants (IdEx, LabEx, EUR...) sont signalés.
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `query` | obligatoire | Thème (syntaxe Solr), acronyme ou référence |
+| `kind` | optionnel (défaut : `both`) | `anr`, `europe` ou `both` |
+| `start_year` / `end_year` | optionnel | Bornes sur l'année des publications financées |
+| `rows` | optionnel (défaut : 10, max : 50) | Nombre de projets retournés par référentiel |
+
+* `get_project_publications` : Liste les publications financées par un projet, les plus récentes d'abord, avec les mots-clés, disciplines et laboratoires les plus fréquents (500 publications au plus) et le ou les projets effectivement désignés.
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `project` | obligatoire | Identifiant HAL du projet, référence (ex. `ANR-19-CHIA-0003`) ou acronyme |
+| `kind` | optionnel (défaut : `both`) | `anr`, `europe` ou `both` |
+| `rows` | optionnel (défaut : 20, max : 50) | Nombre de publications retournées |
+
+* `hal_solr_search` : Exécute une requête Solr composée par l'agent sur l'API HAL et renvoie les documents bruts, avec la requête exacte (`query_url`, cliquable) et sa forme lisible (`readable_url`).
+Les paramètres sont contrôlés avant l'envoi : liste blanche (`q`, `fq`, `fl`, `sort`, `start`, `rows`, `cursorMark`, `q.op`, `df` ; facettes, regroupements et statistiques refusés), contenu contrôlé (paramètres locaux `{!...}` refusés, `fl` limité à des noms de champs, `sort` à `champ asc|desc`), `rows` ≤ 100, `start` ≤ 10 000 ; les textes longs sont tronqués dans la réponse.
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `params` | obligatoire | Dictionnaire de paramètres Solr (`q` requis ; liste de chaînes pour un paramètre répété, ex. `fq`) |
+| `endpoint` | optionnel (défaut : `search`) | `search`, `ref/author`, `ref/structure`, `ref/anrproject`, `ref/europeanproject`, `ref/journal`, `ref/domain` |
+| `aggregate` | optionnel (1 à 8 champs, `search` uniquement) | Champs dont classer les valeurs, ex. `authFullNameIdHal_fs`, `labStructIdName_fs`, `journalTitle_s` ; calculé sur les publications les plus pertinentes, ou les plus récentes si `q` vaut `*:*` (`exhaustive: false` si `num_found` dépasse `aggregate_max_docs`) |
+| `aggregate_max_docs` | optionnel (défaut : 300, max : 500) | Nombre de publications analysées pour `aggregate` |
+| `aggregate_top` | optionnel (défaut : 15, max : 50) | Nombre de valeurs retournées par champ |
+| `count_by` | optionnel (max : 30 tranches, `search` uniquement) | Libellé → filtre ajouté, ex. `{"2024": "producedDateY_i:2024"}` ; une requête `rows=0` par tranche, au plus 4 en parallèle |
+

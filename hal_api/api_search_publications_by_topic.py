@@ -1,6 +1,14 @@
+import asyncio
 import re
 
 from hal_api.client import SEARCH_URL, doc_types_fq, documents_url, first, hal_get
+from hal_api.utils import (
+    collect_values,
+    counts_by_value,
+    rank_authors,
+    rank_domains,
+    rank_labs,
+)
 
 # Types retenus par défaut : publications scientifiques (hors mémoires,
 # posters, blogs, logiciels...).
@@ -9,13 +17,20 @@ DEFAULT_DOC_TYPES = ("ART", "COMM", "THESE", "OUV", "COUV")
 ABSTRACT_MAX_CHARS = 600
 MAX_AUTHORS = 10
 MAX_KEYWORDS = 10
-MAX_DOMAIN_FACETS = 10
+
+# Classements calculés sans facette, sur les publications les plus
+# pertinentes : au-delà, les résultats d'une recherche lexicale sont les plus
+# bruités.
+RANKING_DOCS = 300
+RANKING_FIELDS = ["labStructIdName_fs", "authFullNameIdHal_fs", "fr_domainAllCodeLabel_fs", "producedDateY_i", "docType_s"]
+TOP_LABS = 15
+TOP_AUTHORS = 15
+TOP_DOMAINS = 10
 
 FIELDS = (
     "halId_s,uri_s,title_s,authFullName_s,producedDateY_i,docType_s,doiId_s,"
     "journalTitle_s,conferenceTitle_s,bookTitle_s,keyword_s,abstract_s,language_s"
 )
-DOMAIN_LABEL_FIELD = "fr_domainAllCodeLabel_fs"
 
 DOMAIN_PATTERN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*$")
 
@@ -80,17 +95,24 @@ def _to_publication(doc: dict) -> dict:
     }
 
 
-def _parse_domain_facet(values: list) -> list[dict]:
-    """["shs.info_FacetSep_Sciences.../Sciences de l'information", 40, ...] -> [{code, label, count}]"""
-    domains = []
-    for raw, count in zip(values[::2], values[1::2]):
-        code, _, label = raw.partition("_FacetSep_")
-        domains.append({"code": code, "label": label or None, "count": count})
-    return domains
-
-
-def _pairs(values: list) -> dict:
-    return dict(zip(values[::2], values[1::2]))
+async def topic_rankings(query: str, fq: list[str]) -> dict:
+    """
+    Laboratoires, auteurs, disciplines, années et types de document les plus
+    fréquents parmi les `RANKING_DOCS` publications les plus pertinentes.
+    """
+    collected = await collect_values(query, fq, RANKING_FIELDS, RANKING_DOCS, normalize=str)
+    if "error" in collected:
+        return {"error": collected["error"], "query_url": collected.get("query_url")}
+    counters = collected["counters"]
+    return {
+        "analyzed_docs": collected["analyzed_docs"],
+        "exhaustive": collected["exhaustive"],
+        "labs": rank_labs(counters["labStructIdName_fs"], TOP_LABS, fq, q=query, sort=None),
+        "authors": rank_authors(counters["authFullNameIdHal_fs"], TOP_AUTHORS, fq, q=query, sort=None),
+        "domains": rank_domains(counters["fr_domainAllCodeLabel_fs"], TOP_DOMAINS),
+        "by_year": counts_by_value(counters["producedDateY_i"]),
+        "by_doc_type": counts_by_value(counters["docType_s"]),
+    }
 
 
 async def search_publications_by_topic(
@@ -110,8 +132,9 @@ async def search_publications_by_topic(
     et traductions.
 
     Returns:
-        dict avec num_found, total_returned, has_more, publications, facets
-        ({by_domain, by_doc_type, by_year}), verification_url, query_url
+        dict avec num_found, total_returned, has_more, publications, rankings
+        (voir `topic_rankings`, ou {"error", "query_url"} si leur calcul échoue),
+        verification_url, query_url
         ou {"error": ..., "query_url": ...} en cas d'échec.
     """
     if sort not in SORTS:
@@ -127,37 +150,24 @@ async def search_publications_by_topic(
         "fq": fq,
         "fl": FIELDS,
         "rows": rows,
-        "facet": "true",
-        "facet.field": [DOMAIN_LABEL_FIELD, "docType_s", "producedDateY_i"],
-        "facet.mincount": 1,
-        f"f.{DOMAIN_LABEL_FIELD}.facet.limit": MAX_DOMAIN_FACETS,
-        "f.docType_s.facet.limit": -1,
-        "f.producedDateY_i.facet.limit": -1,
-        "f.producedDateY_i.facet.sort": "index",
     }
     if SORTS[sort]:
         params["sort"] = SORTS[sort]
 
-    result = await hal_get(SEARCH_URL, params)
+    result, rankings = await asyncio.gather(hal_get(SEARCH_URL, params), topic_rankings(query, fq))
     if "error" in result:
         return result
 
-    data = result["data"]
-    response_block = data.get("response", {})
+    response_block = result["data"].get("response", {})
     docs = response_block.get("docs", [])
     num_found = response_block.get("numFound", len(docs))
-    facet_fields = data.get("facet_counts", {}).get("facet_fields", {})
 
     return {
         "num_found": num_found,
         "total_returned": len(docs),
         "has_more": num_found > len(docs),
         "publications": [_to_publication(d) for d in docs],
-        "facets": {
-            "by_domain": _parse_domain_facet(facet_fields.get(DOMAIN_LABEL_FIELD, [])),
-            "by_doc_type": _pairs(facet_fields.get("docType_s", [])),
-            "by_year": _pairs(facet_fields.get("producedDateY_i", [])),
-        },
+        "rankings": rankings,
         # Même tri que l'outil : le lien liste les publications dans le même ordre.
         "verification_url": documents_url(fq, q=query, sort=SORTS[sort]),
         "query_url": result["query_url"],

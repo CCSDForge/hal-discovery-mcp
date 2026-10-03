@@ -32,8 +32,8 @@ SEARCH_DATA = {
             },
         ],
     },
-    "facet_counts": {"facet_queries": {"structId_i:1005874": 52, "structId_i:154357": 81, "structId_i:484158": 72}},
 }
+COUNTS = {"1005874": 52, "154357": 81, "484158": 72}
 
 REF = {
     "structures": {
@@ -57,8 +57,13 @@ def fake_hal(monkeypatch):
             calls["ref_ids"] = struct_ids
             return ref if ref is not None else REF
 
+        async def fake_count_buckets(q, fq, buckets):
+            calls["count"] = {"q": q, "fq": fq, "buckets": buckets}
+            return {label: {"fq": f, "num_found": COUNTS.get(label, 0), "query_url": "u"} for label, f in buckets.items()}
+
         monkeypatch.setattr(module, "hal_get", fake_hal_get)
         monkeypatch.setattr(module, "hal_api_get_structures_by_ids", fake_ref)
+        monkeypatch.setattr(module, "count_buckets", fake_count_buckets)
         return calls
 
     return install
@@ -92,15 +97,20 @@ async def test_returns_publications_with_links_and_matched_structures(fake_hal):
 
     params = calls["params"]
     assert params["sort"] == "producedDate_tdate desc"
+    assert not any(k.startswith("facet") for k in params)
     # doublon 1005874 retiré
     assert params["fq"] == ["structId_i:(1005874 OR 154357 OR 484158)"]
     assert calls["ref_ids"] == [1005874, 154357, 484158]
 
 
 async def test_structures_are_named_counted_and_have_verification_links(fake_hal):
-    fake_hal()
+    calls = fake_hal()
 
     result = await search_structure_publications([1005874, 484158], start_date=date(2025, 1, 1))
+
+    # un comptage rows=0 par structure, avec les autres filtres (pas de facet.query)
+    assert calls["count"]["buckets"] == {"1005874": "structId_i:1005874", "484158": "structId_i:484158"}
+    assert calls["count"]["fq"] == ["producedDate_tdate:[2025-01-01T00:00:00Z TO *]"]
 
     lyon, occitanie = result["structures"]
     assert lyon["acronym"] == "URFIST de Lyon"

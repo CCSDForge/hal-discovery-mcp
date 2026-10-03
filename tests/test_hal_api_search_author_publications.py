@@ -95,3 +95,45 @@ async def test_search_author_publications_propagates_hal_error(fake_httpx):
     result = await search_author_publications(author_name="Yutong Fei")
 
     assert "500" in result["error"]
+
+
+async def test_search_author_publications_adds_thematic_profile_on_recent_publications(fake_httpx):
+    client = fake_httpx(
+        json_data={
+            "response": {
+                "numFound": 2,
+                "docs": [
+                    {
+                        "halId_s": "hal-1",
+                        "producedDateY_i": 2024,
+                        "docType_s": "ART",
+                        "keyword_s": ["Open Science", "LLM"],
+                        "fr_domainAllCodeLabel_fs": ["shs.info_FacetSep_SHS/Info-com"],
+                    },
+                    {"halId_s": "hal-2", "producedDateY_i": 2019, "docType_s": "COMM", "keyword_s": ["open science"]},
+                ],
+            }
+        }
+    )
+
+    result = await search_author_publications(hal_id="yutong-fei")
+
+    profile = result["profile"]
+    assert (profile["first_year"], profile["last_year"]) == (2019, 2024)
+    assert profile["exhaustive"] is True
+    assert profile["keywords"][0]["keyword"] == "open science"
+    assert profile["keywords"][0]["count"] == 2
+    assert profile["domains"] == [{"code": "shs.info", "label": "SHS/Info-com", "count": 1}]
+    assert profile["by_doc_type"] == {"ART": 1, "COMM": 1}
+    profile_call = next(c for c in client.calls if "cursorMark" in c["params"])
+    assert profile_call["params"]["q"] == 'authIdHal_s:"yutong-fei"'
+    assert profile_call["params"]["sort"] == "producedDate_tdate desc,docid asc"
+
+
+async def test_search_author_publications_can_skip_profile(fake_httpx):
+    client = fake_httpx(json_data={"response": {"numFound": 0, "docs": []}})
+
+    result = await search_author_publications(hal_id="yutong-fei", include_profile=False)
+
+    assert "profile" not in result
+    assert len(client.calls) == 1

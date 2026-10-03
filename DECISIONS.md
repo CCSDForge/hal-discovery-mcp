@@ -98,3 +98,84 @@ identifiant ; y ajouter 10 publications par structure (jusqu'à 50 structures) a
 appel. Le nouvel outil accepte plusieurs identifiants, car une même entité peut être répartie
 sur plusieurs structures (ex. 7 URFIST, qui portent toutes le même nom et se distinguent par
 leur sigle). Les structures `OLD` sont incluses : le tri par date les relègue naturellement.
+
+---
+
+## 2026-10-02 — Outil générique `hal_solr_search`, sans facettes
+
+**Décision** : un seul outil transmet à l'API Solr de HAL des requêtes composées par l'agent et
+renvoie la réponse avec la requête exacte. Les outils spécialisés sont conservés.
+Aucune facette, aucun `group` ni `stats` : sur demande (option `aggregate`), les classements
+(auteurs, laboratoires, revues) sont calculés en Python sur au plus 500 documents, les plus
+pertinents d'abord ; les comptes exacts (option `count_by`) reposent sur une requête `rows=0`
+par tranche. Ces calculs sont des fonctions internes (`hal_api/utils.py`), pas des outils MCP :
+un premier essai en trois outils (`hal_solr_aggregate`, `hal_solr_count`) multipliait les
+points d'entrée, ce que l'outil générique devait justement éviter. Pour ces
+outils, cela va à l'inverse de l'entrée « Comptages par facettes Solr » du 2026-09-28, qui
+reste valable pour les outils spécialisés.
+
+**Contexte** : tous les outils reposent sur `search` ou `ref/*` ; chaque question non prévue
+(ex. « auteurs qui publient le plus sur un sujet, sur une période ») demandait un nouvel outil.
+L'agent sait écrire du Solr si la docstring lui décrit les champs et la méthode. Les facettes sur
+des champs à forte cardinalité (auteurs, structures) coûtent cher à HAL ; laissées à la main
+d'un agent, elles seraient appelées sans retenue. Récupérer quelques centaines de documents
+avec un `fl` réduit, ou compter avec `rows=0`, reste léger.
+
+**Contrepartie** : au-delà de `max_docs`, un classement ne porte que sur les publications les
+plus pertinentes (`exhaustive: false`), ce que l'agent doit signaler. Pour un « qui compte sur ce
+sujet », c'est souvent préférable : les derniers résultats d'une recherche lexicale sont les
+plus bruités.
+
+**Garde-fous** : liste blanche de paramètres (`wt` imposé ; `facet.*`, `group.*`, `stats.*`,
+`qt`, `stream.*`… refusés), liste fermée de points d'entrée, bornes sur `rows`, `start`,
+`aggregate_max_docs` et le nombre de tranches, au plus 4 requêtes de comptage simultanées, textes longs
+tronqués dans la réponse.
+
+**Transparence** : chaque réponse de `hal_solr_search` contient `solr_queries`, un bloc Markdown
+prêt à afficher (requête lisible, lien cliquable, numFound de chaque requête envoyée). Recopier
+un bloc tout fait est plus fiable que de demander à l'agent de reconstituer les requêtes à partir
+des champs épars. Les `instructions` du serveur MCP (`core/mcp.py`), transmises au client à la
+connexion, demandent de le recopier en fin de réponse.
+
+---
+
+## 2026-10-03 — Outils recentrés sur quatre parcours, plus aucune facette
+
+**Décision** : les outils suivent les questions des utilisateurs, en quatre parcours, avec
+`hal_solr_search` en recours :
+- **sujet** : `search_publications_by_topic`, qui donne aussi les laboratoires, auteurs et
+  disciplines dominants ;
+- **auteur** : `search_authors`, `search_author_publications` (avec un profil thématique),
+  `get_author_affiliations` ;
+- **structure** : `search_structures`, `search_structure_publications`, `get_structure_topics`
+  (nouveau : thématiques principales, émergentes et en recul) ;
+- **projets** : `search_projects` et `get_project_publications` (nouveaux, ANR et européens).
+
+`get_publication_statistics_by_structure`, `search_lab_keyword_statistics` et
+`count_anr_publications` sont supprimés : des comptages par année, type ou accès ouvert ne
+répondent pas aux questions des chercheurs, et `hal_solr_search` (`count_by`) les couvre si besoin.
+`get_structure_topics` remplace `search_lab_keyword_statistics`, qui ne donnait les mots-clés que
+d'une année, sans comparaison possible, donc sans repérer ce qui émerge.
+
+**Aucune facette** : remet en cause l'entrée « Comptages par facettes Solr » du 2026-09-28 et la
+réserve de l'entrée « Outil générique » du 2026-10-02, qui conservait les facettes des outils
+spécialisés. Les `facet.query` par structure deviennent une requête `rows=0` par structure
+(comptes exacts) ; les répartitions et classements sont calculés en Python
+(`hal_api.utils.collect_values`) sur les publications les plus pertinentes (sujet, projets) ou
+les plus récentes (auteur, structure, projet), avec un `fl` réduit au strict nécessaire.
+Chaque classement indique `analyzed_docs` et `exhaustive`. Le coût pour HAL n'a pas été mesuré :
+à comparer (`QTime`) avec l'équipe qui exploite le Solr.
+
+**Ordre d'analyse** : sans requête thématique (`q=*:*`), tous les scores sont égaux et le tri par
+pertinence revenait à analyser les publications les plus anciennement déposées. `aggregate` trie
+désormais par date décroissante dans ce cas (`order` dans la réponse).
+
+**Garde-fous de `hal_solr_search`** : la liste blanche portait sur les noms de paramètres, pas sur
+leur contenu. HAL accepte les paramètres locaux (`{!join}`, `{!frange}`...) et les transformateurs
+de documents (`[explain]`, `[subquery]`), vérifié le 2026-10-03 : ils sont refusés, `fl` est
+limité à des noms de champs et `sort` à `champ asc|desc`.
+
+**Limites connues** : les mots-clés sont ceux des déposants (beaucoup de publications n'en ont
+pas ; français et anglais ne sont pas regroupés, l'agent s'en charge) ; un auteur très productif
+peut suffire à faire « émerger » un mot-clé ; les programmes ANR structurants (IdEx, LabEx, EUR...)
+dominent les classements de projets par publications, d'où l'indicateur `structuring_program`.

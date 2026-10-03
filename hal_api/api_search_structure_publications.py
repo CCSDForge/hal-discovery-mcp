@@ -3,6 +3,7 @@ from datetime import date
 
 from hal_api.api_search_structures import hal_api_get_structures_by_ids
 from hal_api.client import SEARCH_URL, date_range, doc_types_fq, documents_url, doi_url, first, hal_get
+from hal_api.utils import count_buckets
 
 MAX_AUTHORS = 10
 
@@ -61,9 +62,9 @@ async def search_structure_publications(
     """
     Publications les plus récentes d'une ou plusieurs structures HAL.
 
-    Deux requêtes en parallèle : les publications (avec un comptage par
-    structure via facet.query) et la résolution des structures dans le
-    référentiel (nom, sigle, tutelles), indispensable quand plusieurs
+    Requêtes en parallèle : les publications, un comptage exact par structure
+    (une requête rows=0 chacune, sans facette) et la résolution des structures
+    dans le référentiel (nom, sigle, tutelles), indispensable quand plusieurs
     structures portent le même nom (ex: les URFIST).
 
     Returns:
@@ -84,13 +85,13 @@ async def search_structure_publications(
         "fl": FIELDS,
         "rows": rows,
         "sort": sort,
-        "facet": "true",
-        "facet.query": [f"structId_i:{i}" for i in struct_ids],
     }
+    other_fq = fq[1:]
 
-    result, ref = await asyncio.gather(
+    result, ref, counts = await asyncio.gather(
         hal_get(SEARCH_URL, params),
         hal_api_get_structures_by_ids(struct_ids),
+        count_buckets("*:*", other_fq, {str(i): f"structId_i:{i}" for i in struct_ids}),
     )
     if "error" in result:
         return result
@@ -98,13 +99,10 @@ async def search_structure_publications(
     # pas de renvoyer les publications.
     ref_structures = {} if "error" in ref else ref["structures"]
 
-    data = result["data"]
-    response_block = data.get("response", {})
+    response_block = result["data"].get("response", {})
     docs = response_block.get("docs", [])
     num_found = response_block.get("numFound", len(docs))
-    facet_queries = data.get("facet_counts", {}).get("facet_queries", {})
 
-    other_fq = fq[1:]
     structures = []
     for struct_id in struct_ids:
         ref_entry = ref_structures.get(struct_id) or {}
@@ -114,7 +112,8 @@ async def search_structure_publications(
             "acronym": ref_entry.get("acronym"),
             "parent_names": ref_entry.get("parent_names", []),
             "validation_status": ref_entry.get("validation_status"),
-            "num_publications": facet_queries.get(f"structId_i:{struct_id}", 0),
+            # None si le comptage de cette structure a échoué.
+            "num_publications": counts[str(struct_id)].get("num_found"),
             "verification_url": documents_url([f"structId_i:{struct_id}", *other_fq], sort=sort),
         })
 

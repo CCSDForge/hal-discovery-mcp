@@ -14,11 +14,12 @@ EXPECTED_TOOLS = {
     "search_author_publications",
     "get_author_affiliations",
     "search_structures",
-    "get_publication_statistics_by_structure",
-    "count_anr_publications",
-    "search_lab_keyword_statistics",
     "search_publications_by_topic",
     "search_structure_publications",
+    "get_structure_topics",
+    "search_projects",
+    "get_project_publications",
+    "hal_solr_search",
 }
 
 
@@ -37,9 +38,13 @@ async def test_all_tools_are_registered():
         ("search_author_publications", "rows"),
         ("get_author_affiliations", "rows"),
         ("search_structures", "rows"),
-        ("search_lab_keyword_statistics", "limit"),
         ("search_publications_by_topic", "rows"),
         ("search_structure_publications", "rows"),
+        ("get_structure_topics", "top"),
+        ("search_projects", "rows"),
+        ("get_project_publications", "rows"),
+        ("hal_solr_search", "aggregate_max_docs"),
+        ("hal_solr_search", "aggregate_top"),
     ],
 )
 async def test_result_size_parameters_are_bounded(tool_name, param):

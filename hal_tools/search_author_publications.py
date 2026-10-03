@@ -14,13 +14,20 @@ async def search_author_publications(
     start_date: date | None = None,
     end_date: date | None = None,
     rows: Annotated[int, Field(ge=1, le=200)] = 50,
+    include_profile: bool = True,
 ):
     """
         search_author_publications - Recherche les publications d'un auteur dans HAL,
-        les plus récentes d'abord.
+        les plus récentes d'abord, et résume son profil thématique (disciplines,
+        mots-clés, période d'activité).
 
         Utiliser cet outil lorsque l'utilisateur souhaite consulter les publications
-        d'un auteur, obtenir leurs métadonnées.
+        d'un auteur, obtenir leurs métadonnées, ou savoir sur quoi il travaille et dans
+        quel domaine, par exemple :
+            - "Quelles sont les publications récentes de Yutong Fei ?"
+            - "Sur quoi travaille Yolande Maury ? Dans quel domaine ?"
+        Pour son laboratoire de rattachement : `get_author_affiliations`.
+        Pour trouver qui travaille sur un sujet : `search_publications_by_topic`.
 
         Identification de l'auteur (au moins un des deux) :
             - `hal_id` (recommandé) : identifiant HAL obtenu via `search_authors`.
@@ -44,6 +51,9 @@ async def search_author_publications(
             rows:
                 Nombre maximal de publications à retourner
                 (1 à 200, par défaut : 50).
+            include_profile:
+                Calculer le profil thématique (par défaut : True). Le mettre à False
+                si seule la liste des publications est utile.
 
         Returns:
             num_found:
@@ -60,6 +70,18 @@ async def search_author_publications(
                 notice HAL), title, abstract (None si absent), year, date, type,
                 doi (identifiant brut, None si absent), doi_url (lien
                 https://doi.org/... vers la version éditeur, None si pas de DOI), authors.
+            profile (si `include_profile`):
+                Calculé sur les 500 publications les plus récentes de l'auteur pour ces
+                critères (`analyzed_docs`, `exhaustive`) : first_year / last_year,
+                domains ([{code, label, count}], 10 premières disciplines HAL),
+                keywords ([{keyword, count, verification_url}], 20 premiers mots-clés,
+                en minuscules ; français et anglais ne sont pas regroupés),
+                by_doc_type ({type: nombre}).
+                En cas d'échec du calcul : {"error", "query_url"}.
+                Pour dire « sur quoi travaille » l'auteur, s'appuyer sur `domains` et
+                `keywords`, en regroupant les variantes FR/EN d'un même thème, et le
+                confirmer par les titres des publications récentes. Ne pas présenter
+                les mots-clés comme une liste exhaustive de ses sujets.
             verification_url:
                 Lien cliquable vers l'API HAL listant les publications de l'auteur pour
                 ces critères (titre, lien HAL, date, type) ; `numFound` en tête de la
@@ -91,6 +113,7 @@ async def search_author_publications(
         start_date=start_date,
         end_date=end_date,
         rows=rows,
+        include_profile=include_profile,
     )
     if "error" in result:
         return result
@@ -104,6 +127,7 @@ async def search_author_publications(
         "with_abstract": with_abstract,
         "without_abstract": result["total_returned"] - with_abstract,
         "publications": result["publications"],
+        **({"profile": result["profile"]} if "profile" in result else {}),
         "verification_url": result["verification_url"],
         "query_url": result["query_url"],
     }

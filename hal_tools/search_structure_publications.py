@@ -26,8 +26,8 @@ async def search_structure_publications(
       - "Quelles sont les dernières publications de CREATIS ?"
       - "Qu'a publié le laboratoire ELICO en 2024 ?"
 
-    NE PAS utiliser cet outil pour COMPTER les publications d'une structure : utiliser
-    `get_publication_statistics_by_structure`, qui donne des chiffres exacts par année et par type.
+    NE PAS utiliser cet outil pour décrire les thématiques d'une structure : utiliser
+    `get_structure_topics`.
 
     Workflow :
       1. Appeler d'abord `search_structures` pour obtenir les identifiants (`id`).
