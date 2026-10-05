@@ -1,10 +1,9 @@
 """
-Fixtures partagées pour mocker les appels HTTP sortants (aiohttp/httpx) sans
-dépendre de l'API HAL réelle ni de bibliothèques de mock HTTP supplémentaires.
+Fixture partagée pour mocker les appels HTTP sortants sans dépendre de l'API
+HAL réelle ni de bibliothèques de mock HTTP supplémentaires.
 
-`fake_aiohttp` patche `aiohttp.ClientSession` pour tout le module appelant
-`async with aiohttp.ClientSession(...) as session:` puis `session.get(...)`.
-`fake_httpx` fait de même pour `httpx.AsyncClient`.
+Tous les appels passent par `hal_api.client.hal_get`, qui utilise
+`httpx.AsyncClient` : `fake_httpx` le remplace par un client fake.
 """
 
 import json
@@ -12,117 +11,60 @@ import json
 import pytest
 
 
-class FakeAiohttpResponse:
+class FakeHttpxResponse:
     def __init__(
         self,
-        status=200,
+        status_code=200,
         json_data=None,
         text_data=None,
+        headers=None,
         url="http://example.test/",
-        json_exc=None,
     ):
-        self.status = status
-        self.url = url
-        self.headers = {}
-        self._json_data = {} if json_data is None else json_data
-        self._text_data = text_data if text_data is not None else json.dumps(self._json_data)
-        self._json_exc = json_exc
-
-    async def json(self, content_type=None):
-        if self._json_exc is not None:
-            raise self._json_exc
-        return self._json_data
-
-    async def text(self):
-        return self._text_data
-
-    def raise_for_status(self):
-        if self.status >= 400:
-            raise RuntimeError(f"HTTP error {self.status}")
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
-
-
-class FakeAiohttpSession:
-    def __init__(self, response, raise_on_enter=None):
-        self.response = response
-        self.calls = []
-        self._raise_on_enter = raise_on_enter
-
-    def get(self, url, params=None, **kwargs):
-        self.calls.append({"url": url, "params": params})
-        return self.response
-
-    async def __aenter__(self):
-        if self._raise_on_enter is not None:
-            raise self._raise_on_enter
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
-
-
-class FakeHttpxResponse:
-    def __init__(self, status_code=200, json_data=None, url="http://example.test/"):
         self.status_code = status_code
         self.url = url
-        self._json_data = {} if json_data is None else json_data
+        self.headers = headers or {"Content-Type": "application/json"}
+        self.text = text_data if text_data is not None else json.dumps({} if json_data is None else json_data)
 
     def json(self):
-        return self._json_data
+        return json.loads(self.text)
 
 
 class FakeHttpxAsyncClient:
-    def __init__(self, response):
-        self.response = response
+    def __init__(self, responses, raise_on_get=None):
+        self.responses = responses
         self.calls = []
+        self._raise_on_get = raise_on_get
 
     async def get(self, url, params=None, **kwargs):
         self.calls.append({"url": url, "params": params})
-        return self.response
+        if self._raise_on_get is not None:
+            raise self._raise_on_get
+        # Une réponse par appel si plusieurs sont fournies, sinon toujours la même.
+        index = min(len(self.calls), len(self.responses)) - 1
+        return self.responses[index]
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
-
-
-@pytest.fixture
-def fake_aiohttp(monkeypatch):
-    """
-    Factory `make(raise_on_enter=None, **response_kwargs)` : patche
-    `aiohttp.ClientSession` et renvoie la session fake créée (utile pour
-    inspecter `session.calls`, la liste des `{"url", "params"}` envoyés).
-
-    `raise_on_enter` : exception levée à l'entrée du `async with`, pour
-    simuler une panne réseau (ex. `aiohttp.ClientError`).
-    `**response_kwargs` : voir `FakeAiohttpResponse`.
-    """
-
-    def make(raise_on_enter=None, **response_kwargs):
-        response = None if raise_on_enter is not None else FakeAiohttpResponse(**response_kwargs)
-        session = FakeAiohttpSession(response, raise_on_enter=raise_on_enter)
-        monkeypatch.setattr("aiohttp.ClientSession", lambda *a, **kw: session)
-        return session
-
-    return make
 
 
 @pytest.fixture
 def fake_httpx(monkeypatch):
     """
-    Factory `make(**response_kwargs)` : patche `httpx.AsyncClient` et
-    renvoie le client fake créé (utile pour inspecter `client.calls`).
+    Factory `make(raise_on_get=None, responses=None, **response_kwargs)` :
+    patche `httpx.AsyncClient` et renvoie le client fake créé (utile pour
+    inspecter `client.calls`, la liste des `{"url", "params"}` envoyés).
+
+    `raise_on_get` : exception levée par `get`, pour simuler une panne réseau.
+    `responses` : liste de dicts de kwargs, une réponse par appel successif.
+    `**response_kwargs` : voir `FakeHttpxResponse` (réponse unique).
     """
 
-    def make(**response_kwargs):
-        response = FakeHttpxResponse(**response_kwargs)
-        client = FakeHttpxAsyncClient(response)
+    def make(raise_on_get=None, responses=None, **response_kwargs):
+        responses = [FakeHttpxResponse(**kw) for kw in (responses or [response_kwargs])]
+        client = FakeHttpxAsyncClient(responses, raise_on_get=raise_on_get)
         monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: client)
         return client
 

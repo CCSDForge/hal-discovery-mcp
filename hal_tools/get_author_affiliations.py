@@ -1,3 +1,8 @@
+import asyncio
+from typing import Annotated
+
+from pydantic import Field
+
 from core.mcp import mcp
 from hal_api.api_search_authors import search_authors as _search_author
 from hal_api.api_get_author_affiliations import api_get_author_affiliations
@@ -5,8 +10,8 @@ from hal_api.api_get_author_affiliations import api_get_author_affiliations
 
 @mcp.tool()
 async def get_author_affiliations(
-    nom_auteur: str,
-    rows: int = 100,
+    author_name: str,
+    rows: Annotated[int, Field(ge=1, le=500)] = 100,
 ):
     """
     get_author_affiliations - Recherche l'historique des affiliations d'un auteur dans HAL :
@@ -21,57 +26,68 @@ async def get_author_affiliations(
       - "quel laboratoire ?", "quelle université ?", "où travaille ?" un auteur
 
     Attention : NE PAS utiliser cet outil pour rechercher les PUBLICATIONS d'un auteur
-    (articles, thèses, communications, etc.). Utiliser un outil de recherche de
-    publications dédié comme search_author_publication.
+    (articles, thèses, communications, etc.). Utiliser l'outil dédié
+    `search_author_publications`.
     L'outil get_author_affiliations retourne uniquement les relations auteur-structure/affiliation et non la liste des publications.
 
-    Fonctionnement : identifie l'auteur (hal_id) par outil search_authors puis extrait, depuis ses notices de publication HAL, deux champs :
+    Fonctionnement : identifie l'auteur (hal_id) via le référentiel auteurs HAL puis
+    parcourt ses publications les plus récentes (au plus `rows`) et en extrait deux champs :
         - structPrimaryHasAuthIdHal_fs : affiliation principale déclarée par publication
         - structHasAuthIdHal_fs : toutes les structures associées (principales + secondaires + hiérarchie institutionnelle) — plus large, plus bruité
-        Les occurrences de structPrimaryHasAuthIdHal_fs sont agrégées dans primary_structures_by_frequency.
+        Chaque structure est agrégée avec son nombre de publications et la première /
+        dernière année (first_year / last_year) où elle apparaît, ce qui permet de
+        reconstituer la chronologie.
 
     RÈGLES ANTI-HALLUCINATION (strictes) :
-         - Ne rapporter que ce qui est présent dans primary_structures_by_frequency, all_linked_structures_by_frequency ou raw_docs. Jamais d'invention de nom, id ou période à partir de connaissances générales.
-         - Pour une affiliation "principale"/"actuelle" : utiliser primary_structures_by_frequency (all_linked... est trop large/parent).
+         - Ne rapporter que ce qui est présent dans primary_structures_by_frequency ou all_linked_structures_by_frequency. Jamais d'invention de nom, id ou période à partir de connaissances générales.
+         - Pour une affiliation "principale"/"actuelle" : utiliser primary_structures_by_frequency (all_linked... est trop large/parent), en regardant last_year.
          - Ne jamais déduire une affiliation depuis un titre ou un résumé de publication.
          - Pas de notion d'"affiliation implicite" : une affiliation est présente dans les données ou inconnue.
-         - Toujours formuler comme "structure apparaissant comme affiliation principale déclarée dans X publications", jamais comme un fait certifié d'"affiliation actuelle".
+         - Toujours formuler comme "structure apparaissant comme affiliation principale déclarée dans X publications (entre first_year et last_year)", jamais comme un fait certifié d'"affiliation actuelle".
          - Homonymes (plusieurs auteurs dans authors_found) : présenter séparément ou demander confirmation, ne jamais fusionner.
-         - num_found = 0, pas d'affiliation, pas de hal_id, has_more=true, ou clé "error" dans affiliations_by_author : signaler tel quel, sans reconstruire ni estimer.
+         - num_found = 0, pas d'affiliation, pas de hal_id, ou clé "error" dans affiliations_by_author : signaler tel quel, sans reconstruire ni estimer.
+         - has_more = true : seules les publications les plus récentes ont été analysées ; les affiliations plus anciennes peuvent manquer.
+
+    Liens de vérification (API HAL, cliquables) :
+         - Pour chaque auteur, `verification_url` liste toutes ses publications.
+         - Chaque structure porte un `verification_url` listant les publications où l'auteur
+           y est rattaché ; son `numFound` est égal à `num_publications` si has_more = false,
+           et peut être supérieur sinon (toutes les publications, pas seulement celles analysées).
+         - Toujours fournir à l'utilisateur les liens des structures citées, recopiés tels quels,
+           sans jamais les modifier ni en construire de nouveaux.
 
     Paramétrage :
-        - nom_auteur: nom de l'auteur à rechercher (ex: "Jean Dupont")
-        - rows: nombre max d'enregistrements d'affiliation par auteur (défaut: 100)
+        - author_name: nom de l'auteur à rechercher (ex: "Jean Dupont")
+        - rows: nombre max de publications analysées par auteur (1 à 500, défaut: 100)
 
     Returns:
-        authors_found: [{name, hal_id, docid, statut_validation}, ...]
+        authors_found: [{name, hal_id, docid, validation_status}, ...]
         homonyms_warning: présent si plusieurs auteurs correspondent au nom
         affiliations_by_author: {
             hal_id: {
-                num_found, total_returned, has_more, raw_docs, raw_fields_sample,
-                primary_structures_by_frequency, all_linked_structures_by_frequency
+                num_found, total_returned, has_more, raw_fields_sample,
+                primary_structures_by_frequency, all_linked_structures_by_frequency,
+                verification_url, query_url
             }
+            # chaque structure : {struct_id, struct_name, num_publications, first_year, last_year,
+            #                     verification_url}
             # ou {"error": "..."} en cas d'échec pour cet auteur
         }
         query_url_author_search: URL utilisée pour identifier l'auteur dans HAL
-"""
-    if not nom_auteur or not nom_auteur.strip():
-        return {"error": "Le paramètre 'nom_auteur' est requis et ne peut pas être vide"}
+    """
+    if not author_name or not author_name.strip():
+        return {"error": "Le paramètre 'author_name' est requis et ne peut pas être vide", "query_url": None}
 
-    try:
-        author_result = await _search_author(nom_auteur.strip())
-    except Exception as e:
-        return {"error": f"Erreur inattendue lors de la résolution de l'auteur : {e}"}
-
+    author_result = await _search_author(author_name.strip())
     if "error" in author_result:
-        return {"error": author_result["error"], "query_url": author_result.get("query_url")}
+        return author_result
 
     authors = author_result["authors"]
 
     if not authors:
         return {
             "authors_found": [],
-            "message": f"Aucun auteur trouvé pour '{nom_auteur}' dans HAL.",
+            "message": f"Aucun auteur trouvé pour '{author_name}' dans HAL.",
             "query_url_author_search": author_result["query_url"],
         }
 
@@ -82,24 +98,25 @@ async def get_author_affiliations(
 
     if len(authors) > 1:
         response["homonyms_warning"] = (
-            f"{len(authors)} auteurs correspondent à '{nom_auteur}'. "
+            f"{len(authors)} auteurs correspondent à '{author_name}'. "
             f"Vérifie avec l'utilisateur de qui il s'agit avant de conclure, "
             f"ou présente les affiliations séparément pour chaque personne."
         )
 
     affiliations_by_author = {}
+    with_hal_id = []
     for idx, author in enumerate(authors):
-        # FIX: la clé produite par hal_search_authors est "hal_id", pas "id_hal".
-        # Avant ce fix, cette ligne renvoyait toujours None et l'auteur était
-        # silencieusement ignoré (voir le "continue" ci-dessous), ce qui
-        # laissait affiliations_by_author vide sans jamais le signaler.
         hal_id = author.get("hal_id")
-
-        if not hal_id:
-            # FIX: ne jamais "continue" silencieusement. Un auteur sans hal_id
-            # doit produire une entrée d'erreur explicite, distincte d'un
-            # "aucune affiliation trouvée", pour que le LLM ne confonde pas
-            # "données absentes" avec "erreur technique".
+        if hal_id:
+            # Le référentiel renvoie une ligne par forme auteur : un même
+            # hal_id peut apparaître plusieurs fois, on ne l'interroge qu'une fois.
+            if hal_id not in with_hal_id:
+                with_hal_id.append(hal_id)
+        else:
+            # Ne jamais ignorer silencieusement un auteur sans hal_id : une
+            # entrée d'erreur explicite, distincte d'un "aucune affiliation
+            # trouvée", évite que le LLM confonde "données absentes" et
+            # "erreur technique".
             fallback_key = author.get("name") or f"unknown_author_{idx}"
             affiliations_by_author[fallback_key] = {
                 "error": (
@@ -108,15 +125,11 @@ async def get_author_affiliations(
                     "Les affiliations n'ont pas pu être récupérées."
                 )
             }
-            continue
 
-        try:
-            affil_result = await api_get_author_affiliations(id_hal=hal_id, rows=rows)
-        except Exception as e:
-            affiliations_by_author[hal_id] = {"error": f"Erreur inattendue : {e}"}
-            continue
-
-        affiliations_by_author[hal_id] = affil_result
+    results = await asyncio.gather(
+        *(api_get_author_affiliations(id_hal=hal_id, rows=rows) for hal_id in with_hal_id)
+    )
+    affiliations_by_author.update(zip(with_hal_id, results))
 
     response["affiliations_by_author"] = affiliations_by_author
 
