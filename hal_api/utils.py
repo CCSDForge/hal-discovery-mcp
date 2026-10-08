@@ -2,12 +2,11 @@
 Calculs faits côté serveur MCP à partir de requêtes Solr légères, pour ne pas
 utiliser de facettes, regroupements ni statistiques Solr (coûteux pour HAL).
 
-Ces fonctions ne sont pas des outils MCP : `hal_solr_search` les appelle selon
-ses options `aggregate` et `count_by`.
+Ces fonctions ne sont pas des outils MCP : les outils spécialisés s'en servent
+pour leurs classements et leurs comptes.
 """
 
 import asyncio
-import re
 from collections import Counter
 
 from hal_api.client import SEARCH_URL, documents_url, escape_phrase, hal_get
@@ -16,9 +15,6 @@ from hal_api.client import SEARCH_URL, documents_url, escape_phrase, hal_get
 # requête évitée compte davantage pour HAL que la taille de la page.
 MAX_ROWS_PER_PAGE = 500
 
-FIELD_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
-MAX_AGGREGATE_FIELDS = 8
-MAX_AGGREGATE_DOCS = 500
 # Jusqu'à ce nombre de résultats, les classements portent sur TOUTES les
 # publications (10 pages de 500 au plus, quelques champs courts : environ
 # 80 ms de calcul Solr par page). Un échantillon des plus pertinentes peut
@@ -31,14 +27,12 @@ PARTIAL_RANKING_WARNING = (
     "requête (période, type de document, discipline) pour passer sous {limit} résultats, ce qui "
     "donne un classement complet, plutôt que de présenter ce classement comme représentatif."
 )
-MAX_TOP = 50
 # Tris stables requis par cursorMark (clé unique en dernier). Sans requête
 # thématique (q=*:*), tous les scores sont égaux : trier par pertinence
 # reviendrait à analyser les publications les plus anciennement déposées.
 RELEVANCE_SORT = "score desc,docid asc"
 RECENT_SORT = "producedDate_tdate desc,docid asc"
 
-MAX_BUCKETS = 30
 # Requêtes de comptage envoyées en parallèle au plus, pour ne pas solliciter
 # HAL en rafale.
 COUNT_CONCURRENCY = 4
@@ -75,27 +69,6 @@ def default_sort(q: str) -> str:
 def normalize_keyword(value: str) -> str:
     """Rapproche les variantes de casse et d'espacement d'un mot-clé."""
     return " ".join(value.split()).casefold()
-
-
-def check_aggregate_args(fields: list[str], max_docs: int, top: int) -> None:
-    """Lève ValueError si les arguments de `aggregate_fields` sont hors bornes."""
-    if not fields or len(fields) > MAX_AGGREGATE_FIELDS:
-        raise ValueError(f"'aggregate' doit contenir de 1 à {MAX_AGGREGATE_FIELDS} champs")
-    invalid = [f for f in fields if not isinstance(f, str) or not FIELD_PATTERN.match(f)]
-    if invalid:
-        raise ValueError(f"Nom(s) de champ invalide(s) dans 'aggregate' : {invalid}")
-    if not 1 <= max_docs <= MAX_AGGREGATE_DOCS:
-        raise ValueError(f"'aggregate_max_docs' doit être entre 1 et {MAX_AGGREGATE_DOCS}")
-    if not 1 <= top <= MAX_TOP:
-        raise ValueError(f"'aggregate_top' doit être entre 1 et {MAX_TOP}")
-
-
-def check_buckets(buckets: dict) -> None:
-    """Lève ValueError si les tranches de `count_buckets` sont invalides."""
-    if not buckets or len(buckets) > MAX_BUCKETS:
-        raise ValueError(f"'count_by' doit contenir de 1 à {MAX_BUCKETS} tranches")
-    if not all(isinstance(f, str) and f.strip() for f in buckets.values()):
-        raise ValueError("Chaque tranche de 'count_by' doit être un filtre fq non vide")
 
 
 async def collect_values(
@@ -214,54 +187,10 @@ def merge_authors_by_idhal(counter: Counter) -> Counter:
     return Counter({forms.most_common(1)[0][0]: forms.total() for forms in groups.values()})
 
 
-async def aggregate_fields(
-    q: str, fq: list[str], fields: list[str], max_docs: int, top: int, sort: str | None = None
-) -> dict:
-    """
-    Classe les valeurs les plus fréquentes de chaque champ : sur toutes les
-    publications jusqu'à `COMPLETE_RANKING_LIMIT` résultats, sinon sur
-    `max_docs` publications (voir `collect_values`). Les arguments doivent
-    avoir été vérifiés par `check_aggregate_args`.
-
-    Returns:
-        dict avec analyzed_docs, num_found, exhaustive, warning (si partiel),
-        order, fields ({champ: {distinct_values, top: [{value, count}]}}),
-        pages, readable_url
-        ou {"error": ..., "query_url": ...} en cas d'échec.
-    """
-    collected = await collect_values(q, fq, fields, max_docs, sort, normalize=str, complete_up_to=COMPLETE_RANKING_LIMIT)
-    if "error" in collected:
-        return collected
-    counters = dict(collected["counters"])
-    if "authFullNameIdHal_fs" in counters:
-        counters["authFullNameIdHal_fs"] = merge_authors_by_idhal(counters["authFullNameIdHal_fs"])
-    response = {
-        "analyzed_docs": collected["analyzed_docs"],
-        "num_found": collected["num_found"],
-        "exhaustive": collected["exhaustive"],
-        # Quelles publications ont été analysées quand la liste n'est pas exhaustive.
-        "order": "relevance" if collected["sort"] == RELEVANCE_SORT else "most_recent",
-        "fields": {
-            field: {
-                "distinct_values": len(counter),
-                "top": [{"value": readable_value(v), "count": c} for v, c in counter.most_common(top)],
-            }
-            for field, counter in counters.items()
-        },
-        "pages": collected["pages"],
-        "readable_url": collected["readable_url"],
-    }
-    warning = partial_warning(collected)
-    if warning:
-        response["warning"] = warning
-    return response
-
-
 async def count_buckets(q: str, fq: list[str], buckets: dict[str, str]) -> dict:
     """
     Comptes exacts sans facette : une requête `rows=0` par tranche
-    (`buckets` : libellé -> filtre fq ajouté à `fq`). Les arguments doivent
-    avoir été vérifiés par `check_buckets`.
+    (`buckets` : libellé -> filtre fq ajouté à `fq`).
 
     Returns:
         {libellé: {fq, num_found, query_url} | {fq, error, query_url}}

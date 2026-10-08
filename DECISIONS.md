@@ -210,3 +210,22 @@ qu'une facette sur un champ à forte cardinalité (auteurs, structures).
 **Ne s'applique pas** au profil d'un auteur (200 publications les plus récentes) ni à
 `get_structure_topics` (2 000 par période, les plus récentes) : il s'agit d'y décrire l'activité
 récente, pas de classer des personnes.
+
+---
+
+## 2026-10-08 — `hal_solr_search` devient `search` : recherche seule, sans calcul ni pagination
+
+**Décision** : l'outil générique s'appelle désormais `search` et se limite à une recherche
+générale dans HAL, comme la barre de recherche de l'interface : il renvoie les documents et la
+requête exacte. Les options `aggregate` (avec `aggregate_max_docs`, `aggregate_top`) et
+`count_by` sont supprimées, ainsi que les paramètres `start` et `cursorMark` (et
+`next_cursor_mark` dans la réponse). `check_aggregate_args`, `check_buckets` et
+`aggregate_fields` disparaissent de `hal_api/utils.py` ; `count_buckets` reste, utilisé par
+`search_structure_publications`.
+
+**Remet en cause** l'entrée « Outil générique `hal_solr_search`, sans facettes » du 2026-10-02,
+qui confiait à cet outil les classements et les comptes, et l'entrée « Outils recentrés sur
+quatre parcours » du 2026-10-03, selon laquelle `count_by` couvrait les comptages supprimés.
+L'outil n'a pas vocation à calculer : les classements (auteurs, laboratoires, disciplines,
+projets) restent assurés par les outils spécialisés. Sans pagination, l'agent affine `q` / `fq`
+plutôt que de parcourir des pages de résultats, ce qui ménage aussi HAL.

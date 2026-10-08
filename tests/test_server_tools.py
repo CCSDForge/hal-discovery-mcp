@@ -19,7 +19,7 @@ EXPECTED_TOOLS = {
     "get_structure_topics",
     "search_projects",
     "get_project_publications",
-    "hal_solr_search",
+    "search",
 }
 
 
@@ -43,8 +43,6 @@ async def test_all_tools_are_registered():
         ("get_structure_topics", "top"),
         ("search_projects", "rows"),
         ("get_project_publications", "rows"),
-        ("hal_solr_search", "aggregate_max_docs"),
-        ("hal_solr_search", "aggregate_top"),
     ],
 )
 async def test_result_size_parameters_are_bounded(tool_name, param):

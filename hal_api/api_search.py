@@ -4,21 +4,14 @@ et transmis tels quels, après contrôle (liste blanche de paramètres, bornes s
 le volume renvoyé). Complète les outils spécialisés pour les questions qu'ils
 ne couvrent pas.
 
-Aucune facette, aucun regroupement ni statistique côté Solr (coûteux pour
-HAL) : les classements et les comptes par tranche sont calculés par
-`hal_api.utils`, à la demande (options `aggregate` et `count_by`).
+Recherche seule, sans calcul : aucune facette, aucun regroupement ni
+statistique (coûteux pour HAL), pas de pagination (`start`, `cursorMark`).
 """
 
 import re
 
 from hal_api.client import HAL_API_URL, SEARCH_URL, documents_url, hal_get
-from hal_api.utils import (
-    aggregate_fields,
-    check_aggregate_args,
-    check_buckets,
-    count_buckets,
-    readable_url,
-)
+from hal_api.utils import readable_url
 
 # Points d'entrée Solr de HAL interrogeables. Chacun a son propre schéma de
 # champs (voir la documentation : https://api.archives-ouvertes.fr/docs).
@@ -34,13 +27,11 @@ ENDPOINTS = {
 
 # Paramètres Solr acceptés. `wt` est imposé par hal_get ; facet.*, group.*,
 # stats.* sont exclus pour ménager HAL, comme `qt`, `shards`, `stream.*`...
-ALLOWED_PARAMS = {"q", "fq", "fl", "sort", "start", "rows", "cursorMark", "q.op", "df"}
+# Pas de pagination (`start`, `cursorMark`) : l'agent affine sa requête.
+ALLOWED_PARAMS = {"q", "fq", "fl", "sort", "rows", "q.op", "df"}
 
 MAX_ROWS = 100
 DEFAULT_ROWS = 10
-# Au-delà, la pagination par `start` coûte cher à HAL (2,4 s de calcul Solr
-# mesurées à start=10000) : cursorMark donne les mêmes documents à coût constant.
-MAX_START = 1000
 # fl=* renvoie tous les champs stockés (exports BibTeX, XML...) : environ
 # 4 Mo pour 100 documents. Réservé à la découverte des champs.
 MAX_ROWS_ALL_FIELDS = 5
@@ -70,8 +61,8 @@ def validate_params(params: dict) -> dict:
     unknown = sorted(k for k in params if k not in ALLOWED_PARAMS)
     if unknown:
         raise ValueError(
-            f"Paramètre(s) non autorisé(s) : {unknown}. Les facettes, regroupements et statistiques "
-            "Solr ne sont pas disponibles : utiliser les options 'aggregate' ou 'count_by'."
+            f"Paramètre(s) non autorisé(s) : {unknown}. Ni pagination (start, cursorMark) ni "
+            "facettes, regroupements ou statistiques Solr : affiner q / fq."
         )
 
     normalized = {}
@@ -84,15 +75,11 @@ def validate_params(params: dict) -> dict:
 
     _check_content(normalized)
     _check_int(normalized, "rows", 0, MAX_ROWS)
-    _check_int(normalized, "start", 0, MAX_START, hint=" ; pour aller plus loin, paginer avec cursorMark")
     if "*" in re.split(r"[,\s]+", normalized.get("fl", "")) and int(normalized.get("rows", DEFAULT_ROWS)) > MAX_ROWS_ALL_FIELDS:
         raise ValueError(
             f"fl=* n'est accepté qu'avec rows <= {MAX_ROWS_ALL_FIELDS} (pour découvrir les champs) : "
             "lister ensuite les champs utiles dans fl"
         )
-    if "start" in normalized and "cursorMark" in normalized:
-        raise ValueError("'start' et 'cursorMark' sont incompatibles : utiliser l'un ou l'autre")
-
     return normalized
 
 
@@ -112,12 +99,12 @@ def _check_content(params: dict) -> None:
         raise ValueError("'q.op' doit valoir AND ou OR")
 
 
-def _check_int(params: dict, key: str, low: int, high: int, hint: str = "") -> None:
+def _check_int(params: dict, key: str, low: int, high: int) -> None:
     if key not in params:
         return
     value = params[key]
     if isinstance(value, list) or not re.fullmatch(r"-?\d+", value) or not low <= int(value) <= high:
-        raise ValueError(f"{key!r} doit être un entier entre {low} et {high} (reçu : {value!r}){hint}")
+        raise ValueError(f"{key!r} doit être un entier entre {low} et {high} (reçu : {value!r})")
 
 
 def _truncate_value(value):
@@ -128,35 +115,19 @@ def _truncate_value(value):
     return value
 
 
-async def hal_solr_search(
-    endpoint: str,
-    params: dict,
-    aggregate: list[str] | None = None,
-    aggregate_max_docs: int = 300,
-    aggregate_top: int = 15,
-    count_by: dict[str, str] | None = None,
-) -> dict:
+async def search(endpoint: str, params: dict) -> dict:
     """
-    Exécute une requête Solr sur un point d'entrée HAL et, sur demande,
-    classe les valeurs de champs (`aggregate`) ou compte par tranche
-    (`count_by`) les publications correspondant aux mêmes q / fq.
+    Exécute une requête Solr sur un point d'entrée HAL.
 
     Returns:
-        dict avec num_found, total_returned, docs, next_cursor_mark,
-        aggregations, counts, solr_params, readable_url, query_url,
-        verification_url
+        dict avec num_found, total_returned, docs, solr_params,
+        readable_url, query_url, verification_url, solr_queries
         ou {"error": ..., "query_url": ...} en cas d'échec.
     """
     if endpoint not in ENDPOINTS:
         return {"error": f"endpoint doit valoir l'une de ces valeurs : {list(ENDPOINTS)}", "query_url": None}
     try:
         params = validate_params(params)
-        if (aggregate or count_by) and endpoint != "search":
-            raise ValueError("'aggregate' et 'count_by' ne s'appliquent qu'au point d'entrée 'search'")
-        if aggregate:
-            check_aggregate_args(aggregate, aggregate_max_docs, aggregate_top)
-        if count_by:
-            check_buckets(count_by)
     except ValueError as e:
         return {"error": str(e), "query_url": None}
 
@@ -176,17 +147,10 @@ async def hal_solr_search(
         "total_returned": len(docs),
         "docs": [{k: _truncate_value(v) for k, v in d.items()} for d in docs],
     }
-    if data.get("nextCursorMark"):
-        output["next_cursor_mark"] = data["nextCursorMark"]
 
     q = params["q"]
     fq = params.get("fq", [])
     fq = fq if isinstance(fq, list) else [fq]
-    if aggregate:
-        output["aggregations"] = await aggregate_fields(q, fq, aggregate, aggregate_max_docs, aggregate_top)
-    if count_by:
-        output["counts"] = await count_buckets(q, fq, count_by)
-
     output["solr_params"] = params
     output["readable_url"] = readable_url(url, params)
     output["query_url"] = result["query_url"]
@@ -199,36 +163,15 @@ async def hal_solr_search(
 
 def solr_queries_markdown(output: dict) -> str:
     """
-    Bloc Markdown prêt à recopier dans la réponse à l'utilisateur, listant les
-    requêtes réellement envoyées à HAL, pour qu'il puisse les vérifier et les
+    Bloc Markdown prêt à recopier dans la réponse à l'utilisateur, avec la
+    requête réellement envoyée à HAL, pour qu'il puisse la vérifier et la
     rejouer. La forme lisible est en bloc de code (elle contient des espaces
     et des guillemets) ; la forme encodée sert de lien cliquable.
     """
-    lines = [
+    return "\n".join([
         f"**Requête Solr — recherche** (numFound = {output['num_found']})",
         "```",
         output["readable_url"],
         "```",
         f"[Ouvrir dans l'API HAL]({output['query_url']})",
-    ]
-
-    aggregations = output.get("aggregations")
-    if aggregations and "error" not in aggregations:
-        lines += [
-            "",
-            f"**Requête Solr — classement** ({aggregations['analyzed_docs']} publications analysées"
-            f" sur {output['num_found']}, en {aggregations['pages']} page(s) ; comptage fait par le serveur MCP)",
-            "```",
-            aggregations["readable_url"],
-            "```",
-        ]
-
-    counts = output.get("counts")
-    if counts:
-        lines += ["", "**Requêtes Solr — comptes** (même requête avec rows=0 et un fq supplémentaire par tranche)"]
-        for label, c in counts.items():
-            value = c["num_found"] if "error" not in c else f"erreur : {c['error']}"
-            link = f" — [vérifier]({c['query_url']})" if c.get("query_url") else ""
-            lines.append(f"- {label} (`fq={c['fq']}`) : {value}{link}")
-
-    return "\n".join(lines)
+    ])

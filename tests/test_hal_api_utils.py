@@ -4,8 +4,6 @@ from collections import Counter
 from urllib.parse import parse_qs, urlparse
 
 from hal_api.utils import (
-    aggregate_fields,
-    check_aggregate_args,
     collect_values,
     count_buckets,
     merge_authors_by_idhal,
@@ -31,44 +29,6 @@ def test_readable_value_splits_facet_separators():
     assert readable_value(2024) == "2024"
 
 
-@pytest.mark.parametrize("fields, max_docs, top", [([], 300, 15), (["a,b"], 300, 15), (["x"], 501, 15), (["x"], 1, 0)])
-def test_check_aggregate_args_rejects_out_of_bounds(fields, max_docs, top):
-    with pytest.raises(ValueError):
-        check_aggregate_args(fields, max_docs, top)
-
-
-async def test_aggregate_fields_pages_with_cursor_and_counts_in_python(fake_httpx):
-    client = fake_httpx(
-        responses=[
-            page(
-                [
-                    {"authFullNameIdHal_fs": ["Yolande Maury_FacetSep_yolande-maury", "A Zeller_FacetSep_"]},
-                    {"authFullNameIdHal_fs": ["Yolande Maury_FacetSep_yolande-maury"], "producedDateY_i": 2024},
-                ],
-                3,
-                "c1",
-            ),
-            page([{"producedDateY_i": 2024}], 3, "c2"),
-        ]
-    )
-
-    result = await aggregate_fields("llm", ["producedDateY_i:[2022 TO 2026]"], ["authFullNameIdHal_fs", "producedDateY_i"], 300, 15)
-
-    first, second = (c["params"] for c in client.calls)
-    assert len(client.calls) == 2
-    assert first["cursorMark"] == "*" and second["cursorMark"] == "c1"
-    assert first["sort"] == "score desc,docid asc"
-    assert first["fl"] == "authFullNameIdHal_fs,producedDateY_i"
-
-    assert result["analyzed_docs"] == 3
-    assert result["exhaustive"] is True
-    assert result["fields"]["authFullNameIdHal_fs"] == {
-        "distinct_values": 2,
-        "top": [{"value": "Yolande Maury | yolande-maury", "count": 2}, {"value": "A Zeller", "count": 1}],
-    }
-    assert result["fields"]["producedDateY_i"]["top"] == [{"value": "2024", "count": 2}]
-
-
 async def test_collect_values_stops_at_max_docs(fake_httpx):
     client = fake_httpx(responses=[page([{"docType_s": "ART"}] * 100, 5000, f"c{i}") for i in range(5)])
 
@@ -76,18 +36,6 @@ async def test_collect_values_stops_at_max_docs(fake_httpx):
 
     assert [c["params"]["rows"] for c in client.calls] == ["100", "100", "50"]
     assert result["exhaustive"] is False
-
-
-async def test_aggregate_fields_uses_large_pages_to_limit_requests(fake_httpx):
-    client = fake_httpx(json_data={"response": {"numFound": 6000, "docs": [{"docType_s": "ART"}] * 500}, "nextCursorMark": "c1"})
-
-    result = await aggregate_fields("x", [], ["docType_s"], 500, 15)
-
-    # au-delà de la limite du classement complet : échantillon de 500, en une seule requête
-    assert [c["params"]["rows"] for c in client.calls] == ["500"]
-    assert result["analyzed_docs"] == 500
-    assert result["exhaustive"] is False
-    assert "Classement partiel" in result["warning"]
 
 
 async def test_count_buckets_runs_one_rows0_query_per_bucket(fake_httpx):
@@ -217,23 +165,3 @@ def test_merge_authors_by_idhal_groups_name_forms_but_not_homonyms():
         "Chérifa Boukacem-Zeghmouri_FacetSep_": 1,
         "A Zeller_FacetSep_": 3,
     })
-
-
-async def test_aggregate_fields_is_complete_below_limit_and_merges_authors(fake_httpx):
-    fake_httpx(
-        json_data={
-            "response": {
-                "numFound": 2,
-                "docs": [
-                    {"authFullNameIdHal_fs": ["Cherifa Boukacem_FacetSep_cbz"]},
-                    {"authFullNameIdHal_fs": ["Chérifa Boukacem-Zeghmouri_FacetSep_cbz"]},
-                ],
-            }
-        }
-    )
-
-    result = await aggregate_fields("x", [], ["authFullNameIdHal_fs"], 1, 15)
-
-    assert result["exhaustive"] is True
-    assert "warning" not in result
-    assert result["fields"]["authFullNameIdHal_fs"]["top"][0]["count"] == 2

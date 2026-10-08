@@ -51,7 +51,7 @@ Nous avons développé une série de 10 outils, organisés selon quatre parcours
 
 ## 5. Requête libre : pour les questions que les autres outils ne couvrent pas
 
-- `hal_solr_search` : quand aucun outil ne correspond à la question, LLM écrit lui-même la requête à envoyer à HAL. Il peut ainsi répondre à des questions plus variées.
+- `search` : recherche générale dans HAL, comme la barre de recherche de l'interface. Quand aucun outil ne correspond à la question, LLM écrit lui-même la requête à envoyer à HAL. Il peut ainsi répondre à des questions plus variées.
 
 Pour que la réponse reste vérifiable, la requête utilisée est toujours affichée, avec un lien qui permet de la relancer dans HAL.
 
@@ -187,15 +187,11 @@ La recherche est lexicale : l'agent construit la requête en combinant synonymes
 | `kind` | optionnel (défaut : `both`) | `anr`, `europe` ou `both` |
 | `rows` | optionnel (défaut : 20, max : 50) | Nombre de publications retournées |
 
-* `hal_solr_search` : Exécute une requête Solr composée par l'agent sur l'API HAL et renvoie les documents bruts, avec la requête exacte (`query_url`, cliquable) et sa forme lisible (`readable_url`).
-Les paramètres sont contrôlés avant l'envoi : liste blanche (`q`, `fq`, `fl`, `sort`, `start`, `rows`, `cursorMark`, `q.op`, `df` ; facettes, regroupements et statistiques refusés), contenu contrôlé (paramètres locaux `{!...}` refusés, `fl` limité à des noms de champs, `sort` à `champ asc|desc`), `rows` ≤ 100, `start` ≤ 10 000 ; les textes longs sont tronqués dans la réponse.
+* `search` : Recherche générale dans HAL. Exécute une requête Solr construite par l’agent et renvoie les documents bruts, accompagnés de l’URL exacte de la requête (`query_url`, cliquable) et de sa version lisible (`readable_url`).
+**Paramètres disponibles** : `q`, `fq`, `fl`, `sort`, `rows`, `q.op` et `df`. Le nombre de résultats est limité à 100 (`rows` ≤ 100). Les textes longs sont tronqués dans la réponse afin d’en limiter la taille.
 
 | Paramètre | Type | Description |
 |---|---|---|
 | `params` | obligatoire | Dictionnaire de paramètres Solr (`q` requis ; liste de chaînes pour un paramètre répété, ex. `fq`) |
 | `endpoint` | optionnel (défaut : `search`) | `search`, `ref/author`, `ref/structure`, `ref/anrproject`, `ref/europeanproject`, `ref/journal`, `ref/domain` |
-| `aggregate` | optionnel (1 à 8 champs, `search` uniquement) | Champs dont classer les valeurs, ex. `authFullNameIdHal_fs`, `labStructIdName_fs`, `journalTitle_s` ; calculé sur les publications les plus pertinentes, ou les plus récentes si `q` vaut `*:*` (`exhaustive: false` si `num_found` dépasse `aggregate_max_docs`) |
-| `aggregate_max_docs` | optionnel (défaut : 300, max : 500) | Nombre de publications analysées pour `aggregate` |
-| `aggregate_top` | optionnel (défaut : 15, max : 50) | Nombre de valeurs retournées par champ |
-| `count_by` | optionnel (max : 30 tranches, `search` uniquement) | Libellé → filtre ajouté, ex. `{"2024": "producedDateY_i:2024"}` ; une requête `rows=0` par tranche, au plus 4 en parallèle |
 

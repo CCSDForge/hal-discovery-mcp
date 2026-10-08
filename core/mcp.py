@@ -6,7 +6,7 @@ mcp = MCPServer(
     "hal",
     instructions=(
         "Serveur d'accès à l'archive ouverte HAL. Transparence obligatoire : quand une réponse "
-        "s'appuie sur hal_solr_search, terminer par une section « Requêtes Solr utilisées » qui "
+        "s'appuie sur l'outil search, terminer par une section « Requêtes Solr utilisées » qui "
         "recopie tel quel le champ `solr_queries` de chaque appel retenu, pour que l'utilisateur "
         "puisse vérifier et rejouer la recherche. Pour les autres outils, donner les liens "
         "`verification_url` ou `verification_urls` renvoyés. Ne citer que des publications "

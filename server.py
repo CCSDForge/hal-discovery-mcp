@@ -10,7 +10,7 @@ import hal_tools.get_structure_topics
 import hal_tools.search_publications_by_topic
 import hal_tools.search_projects
 import hal_tools.get_project_publications
-import hal_tools.hal_solr_search
+import hal_tools.search
 
 HOST = "0.0.0.0"
 PORT = 8000
