@@ -20,6 +20,8 @@ EXPECTED_TOOLS = {
     "search_projects",
     "get_project_publications",
     "search",
+    "sparql",
+    "build_network",
 }
 
 
@@ -43,6 +45,7 @@ async def test_all_tools_are_registered():
         ("get_structure_topics", "top"),
         ("search_projects", "rows"),
         ("get_project_publications", "rows"),
+        ("build_network", "min_docs"),
     ],
 )
 async def test_result_size_parameters_are_bounded(tool_name, param):

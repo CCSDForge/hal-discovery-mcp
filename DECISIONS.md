@@ -229,3 +229,43 @@ quatre parcours » du 2026-10-03, selon laquelle `count_by` couvrait les comptag
 L'outil n'a pas vocation à calculer : les classements (auteurs, laboratoires, disciplines,
 projets) restent assurés par les outils spécialisés. Sans pagination, l'agent affine `q` / `fq`
 plutôt que de parcourir des pages de résultats, ce qui ménage aussi HAL.
+
+---
+
+## 2026-11-10 — Outils SPARQL (`sparql`, `build_network`) et réseaux ouverts dans VOSviewer Online
+
+**Décision** : deux outils interrogent le point d'accès SPARQL de HAL
+(`https://sparql.archives-ouvertes.fr/sparql`, Virtuoso) : `sparql`, requête libre sur le modèle de
+`search`, et `build_network`, qui calcule un réseau de co-occurrence à partir d'une requête renvoyant
+des couples `?doc` / `?item`. Le réseau s'ouvre dans VOSviewer Online par un lien
+`https://app.vosviewer.com/?json=<MCP>/network.json?q=<requête compressée>&min=<n>` : la route HTTP
+`/mcp/network.json` rejoue la requête et renvoie le JSON VOSviewer (en-tête CORS). Issu des scripts
+`hal_reseau_collaboration` (co-autorat d'une personne, réseaux thématiques), généralisés : ce sont
+désormais des exemples de requêtes dans la docstring, pas des outils figés.
+
+**Contexte** : Solr ne parcourt pas les relations (forme auteur → idHAL, affiliation déclarée sur
+chaque document, laboratoire → tutelles) ; le graphe RDF, si. Un seul outil de réseau générique,
+dont l'élément est choisi par la requête (auteur, structure, mot-clé), évite un outil par type de
+réseau, comme `search` l'a fait pour Solr (entrée du 2026-10-02).
+
+**VOSviewer plutôt qu'un graphe dessiné par le LLM (skill, artefact)** : le serveur MCP est utilisé
+par des clients variés ; un lien fonctionne partout. Le LLM ne recopie ni ne dessine les nœuds : le
+graphe vient du serveur, la mise en page et les clusters de VOSviewer, outil de référence en
+bibliométrie. Le lien est reproductible et partageable. Rien n'est stocké : le serveur reste sans
+état (`stateless_http`), au prix d'une requête SPARQL à chaque ouverture (`Cache-Control` 1 h).
+Piste ultérieure : une « MCP App » (graphe vis-network affiché dans le client), pour les clients
+qui la gèrent.
+
+**Garde-fous** : lecture seule (SELECT, ASK) ; `INSERT`, `DELETE`, `LOAD`, `CONSTRUCT`, `DESCRIBE`,
+`SERVICE` (fédération), `DEFINE` (pragmas Virtuoso) et fonctions `bif:` / `sql:` autres que
+`bif:contains` refusés, contrôle fait après masquage des littéraux, IRI et commentaires ; `LIMIT` ≤
+1000 pour `sparql`, ≤ 10 000 pour `build_network` (plafond `ResultSetMaxRows` du serveur, qui tronque
+sans le signaler : avertissement `warnings` quand il est atteint) ; pas d'`OFFSET` ; requête ≤ 5 000
+caractères ; délai 60 s. La route `network.json` applique les mêmes contrôles : elle n'ouvre pas plus
+que le point d'accès SPARQL, déjà public.
+
+**Limites constatées (nov. 2026)** : `bif:contains` (index plein texte) ne renvoie rien ; auteurs
+sans notice dans le référentiel absents du graphe (environ 40 % des signatures sur « science
+ouverte ») ; dates de types hétérogènes (année, année-mois, date). La docstring le signale à l'agent.
+Le coût pour Virtuoso n'a pas été mesuré, ni la synchronisation du SPARQL avec Solr : à voir avec
+l'équipe qui l'exploite.

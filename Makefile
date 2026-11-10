@@ -2,6 +2,8 @@ IMAGE_NAME    := hal-mcp
 CONTAINER_NAME := hal-mcp
 PORT          := 8000
 VENV          := venv
+# Adresse publique du MCP, utilisée dans les liens VOSviewer (préprod : make up PUBLIC_URL=https://api-preprod.archives-ouvertes.fr/mcp)
+PUBLIC_URL    ?= https://api.archives-ouvertes.fr/mcp
 
 # Fuseau horaire de l'hôte, avec repli sur Europe/Paris si indétectable.
 HOST_TZ := $(shell cat /etc/timezone 2>/dev/null \
@@ -27,7 +29,7 @@ build: ## make build TZ=Europe/Paris — construit l'image Docker (fuseau de l'h
 	docker build -f docker/Dockerfile --build-arg TZ=$(TZ) -t $(IMAGE_NAME) .
 
 up: ## Démarre le conteneur en arrière-plan (port $(PORT))
-	docker run -d --name $(CONTAINER_NAME) -p $(PORT):8000 $(IMAGE_NAME)
+	docker run -d --name $(CONTAINER_NAME) -p $(PORT):8000 -e HAL_MCP_PUBLIC_URL=$(PUBLIC_URL) $(IMAGE_NAME)
 
 down: ## Arrête et supprime le conteneur
 	docker rm -f $(CONTAINER_NAME)

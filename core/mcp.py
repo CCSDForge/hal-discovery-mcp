@@ -8,7 +8,9 @@ mcp = MCPServer(
         "Serveur d'accès à l'archive ouverte HAL. Transparence obligatoire : quand une réponse "
         "s'appuie sur l'outil search, terminer par une section « Requêtes Solr utilisées » qui "
         "recopie tel quel le champ `solr_queries` de chaque appel retenu, pour que l'utilisateur "
-        "puisse vérifier et rejouer la recherche. Pour les autres outils, donner les liens "
+        "puisse vérifier et rejouer la recherche. De même pour les outils sparql et build_network : "
+        "section « Requêtes SPARQL utilisées » recopiant le champ `sparql_queries`, et pour "
+        "build_network, le lien `vosviewer_url`. Pour les autres outils, donner les liens "
         "`verification_url` ou `verification_urls` renvoyés. Ne citer que des publications "
         "présentes dans les résultats."
     ),

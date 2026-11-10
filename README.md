@@ -8,6 +8,8 @@ Ces outils s’appuient sur les [différentes endpoints de l'API HAL](https://ap
 
 Le serveur consulte également d'autres référentiels HAL : `author` (auteurs), `structure` (structures de recherche), `anrproject` (projets ANR) et `europeanproject` (projets européens).
 
+Il interroge enfin le [point d'accès SPARQL de HAL](https://sparql.archives-ouvertes.fr/sparql), qui décrit HAL sous forme de graphe (documents, auteurs, structures et leurs tutelles), pour explorer les relations et dessiner des réseaux ouverts dans [VOSviewer Online](https://app.vosviewer.com).
+
 ---
 # Connecter votre LLM préféré au serveur MCP de HAL
 
@@ -18,7 +20,7 @@ Le ***HAL Discovery MCP Server*** est actuellement disponible sur l’environnem
 ---
 # Outils disponibles
 
-Nous avons développé une série de 10 outils, organisés selon quatre parcours, plus un outil de requête libre :
+Nous avons développé une série de 12 outils, organisés selon quatre parcours, plus un outil de requête libre et deux outils fondés sur SPARQL :
 
 ## 1. Sujet : publications et acteurs d'un thème
 
@@ -54,6 +56,15 @@ Nous avons développé une série de 10 outils, organisés selon quatre parcours
 - `search` : recherche générale dans HAL, comme la barre de recherche de l'interface. Quand aucun outil ne correspond à la question, LLM écrit lui-même la requête à envoyer à HAL. Il peut ainsi répondre à des questions plus variées.
 
 Pour que la réponse reste vérifiable, la requête utilisée est toujours affichée, avec un lien qui permet de la relancer dans HAL.
+
+---
+
+## 6. Graphe HAL (SPARQL) : relations et réseaux
+
+- `sparql` : requête SPARQL libre, pour les questions de relations (tutelles d'un laboratoire, formes auteur d'un idHAL, co-auteurs…) ;
+- `build_network` : réseau de co-occurrence (co-autorat, laboratoires ou établissements qui publient ensemble, mots-clés associés), avec un lien qui l'ouvre dans **VOSviewer Online** (mise en page et clusters calculés par VOSviewer).
+
+Comme pour `search`, la requête SPARQL est toujours affichée, avec un lien qui la rejoue.
 
 ---
 # Promptothèque
@@ -93,6 +104,13 @@ Vous trouverez ci-dessous une série d'exemples de requêtes pouvant être utili
 - Quels projets ANR portent sur **l'intelligence artificielle en éducation** ?
 - Quels projets européens financent des recherches sur **les grands modèles de langue** ?
 - Quelles sont les publications et les thématiques du projet ANR **OPEN IT** ?
+
+## Réseaux (VOSviewer)
+
+- Avec qui publie **Prénom Nom** ? Montre-moi son réseau de co-auteurs dans VOSviewer.
+- Quels laboratoires publient ensemble sur **la science ouverte** ? Fais-en un réseau.
+- Quels sont les mots-clés associés à **l'intelligence artificielle en éducation** dans HAL ? Carte VOSviewer.
+- Quelles sont les tutelles du laboratoire **GERiiCO** ?
 ---
 
 # Description détaillée des outils
@@ -195,3 +213,17 @@ La recherche est lexicale : l'agent construit la requête en combinant synonymes
 | `params` | obligatoire | Dictionnaire de paramètres Solr (`q` requis ; liste de chaînes pour un paramètre répété, ex. `fq`) |
 | `endpoint` | optionnel (défaut : `search`) | `search`, `ref/author`, `ref/structure`, `ref/anrproject`, `ref/europeanproject`, `ref/journal`, `ref/domain` |
 
+* `sparql` : Requête SPARQL libre sur le point d'accès SPARQL de HAL. Lecture seule : `SELECT` ou `ASK` uniquement ; mises à jour, `CONSTRUCT`, `DESCRIBE`, requêtes fédérées (`SERVICE`), pragmas Virtuoso (`DEFINE`) et fonctions Virtuoso autres que `bif:contains` refusés. Les préfixes HAL (`hal`, `dcterms`, `dc`, `foaf`, `ore`, `skos`, `org`…) sont ajoutés automatiquement. Renvoie les lignes, la requête complète et un lien qui la rejoue (`verification_url`).
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `query` | obligatoire | Requête SPARQL. `LIMIT` au plus 1000 (100 par défaut), pas d'`OFFSET` |
+
+* `build_network` : Réseau de co-occurrence construit à partir d'une requête SPARQL qui renvoie des couples `?doc` / `?item` (et `?label`, facultatif) : deux éléments sont reliés quand ils apparaissent sur un même document. Renvoie les principaux nœuds et liens, et `vosviewer_url`, un lien qui ouvre le réseau dans VOSviewer Online. Le lien contient la requête : le réseau est recalculé à chaque ouverture (rien n'est stocké sur le serveur).
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `query` | obligatoire | Requête SPARQL renvoyant `?doc`, `?item`, `?label`. `LIMIT` au plus 10 000 (plafond du serveur SPARQL) |
+| `min_docs` | optionnel (défaut : 2, max : 100) | Nombre minimal de documents pour garder un élément (au plus 1000 éléments) |
+
+**Limites** : le graphe RDF de HAL ne contient pas les auteurs sans notice dans le référentiel (leurs signatures n'ont ni nom ni affiliation) : les réseaux d'auteurs et de structures sont incomplets. La recherche plein texte (`bif:contains`) ne renvoie plus de résultat (constaté en novembre 2026) : les sujets se cherchent par mots-clés exacts.
